@@ -1,0 +1,78 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- App references MaxMix.Audio (WASAPI) so the TFM must target Windows. -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>MaxMix.App</RootNamespace>
+    <AssemblyName>MaxMix</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <!--
+      Decision (Batch 6): WPF, not WinUI 3. WinUI 3 requires the Windows App SDK
+      workload which is not installed in this environment and adds substantial
+      packaging complexity. WPF ships with .NET 8 SDK, supports MVVM equally
+      well via CommunityToolkit.Mvvm, and has a stable system-tray story via
+      H.NotifyIcon. The MVVM/Core/Serial/Audio split is identical either way.
+    -->
+
+    <!-- Installer / packaging metadata (sdd/installer-setup). Single source of
+         truth for version, product name, publisher. The build-installer.ps1
+         script reads <Version> via `dotnet msbuild -getProperty:Version` and
+         passes it to ISCC.exe. -->
+    <Version>0.1.0</Version>
+    <Product>MaxMix</Product>
+    <Company>MaxMix</Company>
+
+    <!-- Publish configuration (sdd/installer-setup, design decision #1):
+         applied unconditionally instead of via a .pubxml so CLI and IDE produce
+         identical output. Self-contained win-x64 because the proposal requires
+         "no .NET runtime prerequisite" on target machines. PublishSingleFile is
+         disabled because WPF + XAML resource resolution and H.NotifyIcon both
+         have known issues under single-file. PublishReadyToRun is off because
+         WPF is not trim-safe and R2R adds size with marginal gain for a tray
+         app. DebugType=embedded keeps PDBs inside the DLLs so the installer
+         payload is a clean folder. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MaxMix.Core\MaxMix.Core.csproj" />
+    <ProjectReference Include="..\MaxMix.Serial\MaxMix.Serial.csproj" />
+    <ProjectReference Include="..\MaxMix.Audio\MaxMix.Audio.csproj" />
+  </ItemGroup>
+
+  <!--
+    Expose internal members (test-only ctor on AutoStartService) to the test
+    assembly. Keeps the test-only seam off the public API surface while still
+    letting integration-style tests target a unique registry value name.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="MaxMix.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="H.NotifyIcon.Wpf" Version="2.1.4" />
+
+    <!--
+      Logging composition root: the App is the only project that pulls in a
+      concrete sink, so production code in Core/Serial/Audio stays sink-agnostic
+      and only depends on Microsoft.Extensions.Logging.Abstractions.
+    -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.0" />
+    <PackageReference Include="Serilog" Version="4.0.2" />
+    <PackageReference Include="Serilog.Extensions.Logging" Version="8.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+  </ItemGroup>
+
+</Project>

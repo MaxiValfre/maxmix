@@ -1,0 +1,164 @@
+<Window x:Class="MaxMix.App.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="clr-namespace:MaxMix.Core.Models;assembly=MaxMix.Core"
+        Title="MaxMix"
+        Height="540" Width="420"
+        MinHeight="420" MinWidth="360"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource BackgroundBrush}"
+        Foreground="{StaticResource ForegroundBrush}">
+    <Window.Resources>
+        <!-- Connection-state → brush via DataTrigger style -->
+        <Style x:Key="StatusDot" TargetType="Ellipse">
+            <Setter Property="Width"  Value="10"/>
+            <Setter Property="Height" Value="10"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Setter Property="Fill"   Value="{StaticResource DisconnectedBrush}"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding ConnectionState}" Value="{x:Static models:ConnectionState.Ready}">
+                    <Setter Property="Fill" Value="{StaticResource ConnectedBrush}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding ConnectionState}" Value="{x:Static models:ConnectionState.Handshaking}">
+                    <Setter Property="Fill" Value="{StaticResource ConnectingBrush}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding ConnectionState}" Value="{x:Static models:ConnectionState.Connecting}">
+                    <Setter Property="Fill" Value="{StaticResource ConnectingBrush}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding ConnectionState}" Value="{x:Static models:ConnectionState.Scanning}">
+                    <Setter Property="Fill" Value="{StaticResource ConnectingBrush}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding ConnectionState}" Value="{x:Static models:ConnectionState.Backoff}">
+                    <Setter Property="Fill" Value="{StaticResource ConnectingBrush}"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="SectionTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource MutedForegroundBrush}"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+        </Style>
+
+        <Style x:Key="ActionButton" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>  <!-- header -->
+            <RowDefinition Height="Auto"/>  <!-- mode -->
+            <RowDefinition Height="*"/>     <!-- session list -->
+            <RowDefinition Height="Auto"/>  <!-- nav buttons -->
+            <RowDefinition Height="Auto"/>  <!-- footer -->
+        </Grid.RowDefinitions>
+
+        <!-- Header: connection status + port -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,16">
+            <Ellipse Style="{StaticResource StatusDot}"/>
+            <TextBlock Text="{Binding ConnectionStatusText}" FontSize="14" FontWeight="SemiBold"
+                       VerticalAlignment="Center"/>
+            <TextBlock Text=" — " Foreground="{StaticResource MutedForegroundBrush}"
+                       VerticalAlignment="Center"/>
+            <TextBlock Text="{Binding PortName}" Foreground="{StaticResource MutedForegroundBrush}"
+                       VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- Current mode -->
+        <StackPanel Grid.Row="1" Margin="0,0,0,12">
+            <TextBlock Style="{StaticResource SectionTitle}" Text="MODE"/>
+            <TextBlock Text="{Binding CurrentModeLabel}" FontSize="20" FontWeight="Bold"/>
+        </StackPanel>
+
+        <!-- Session list -->
+        <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}"
+                CornerRadius="4" Padding="8" Margin="0,0,0,12">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Style="{StaticResource SectionTitle}" Text="SESSIONS"
+                           Margin="4,2,0,4"/>
+
+                <ItemsControl Grid.Row="1" ItemsSource="{Binding Sessions}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="4,3" Background="Transparent">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Current-row indicator -->
+                                <TextBlock Grid.Column="0" Width="14" VerticalAlignment="Center"
+                                           Text="▶" FontSize="11"
+                                           Foreground="{StaticResource AccentBrush}"
+                                           Visibility="{Binding IsCurrent, Converter={StaticResource BoolToVis}}"/>
+
+                                <!-- Name -->
+                                <TextBlock Grid.Column="1" Text="{Binding Name}"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis"/>
+
+                                <!-- Volume bar -->
+                                <ProgressBar Grid.Column="2" Width="80" Height="6"
+                                             Margin="8,0"
+                                             Minimum="0" Maximum="100"
+                                             Value="{Binding Volume, Mode=OneWay}"
+                                             Background="#FF3F3F46"
+                                             Foreground="{StaticResource AccentBrush}"
+                                             VerticalAlignment="Center"/>
+
+                                <!-- Mute indicator -->
+                                <TextBlock Grid.Column="3" Width="22" TextAlignment="Right"
+                                           VerticalAlignment="Center"
+                                           Text="🔇"
+                                           Visibility="{Binding IsMuted, Converter={StaticResource BoolToVis}}"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Grid.Row="2"
+                           Text="No sessions in this mode."
+                           Foreground="{StaticResource MutedForegroundBrush}"
+                           HorizontalAlignment="Center"
+                           Margin="0,8,0,0"
+                           Visibility="{Binding Sessions.Count, Converter={StaticResource ZeroToVis}}"/>
+            </Grid>
+        </Border>
+
+        <!-- Nav buttons -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,8">
+            <Button Style="{StaticResource ActionButton}" Margin="0,0,4,0"
+                    Command="{Binding PreviousSessionCommand}" Content="◀ Prev"/>
+            <Button Style="{StaticResource ActionButton}" Margin="4,0"
+                    Command="{Binding CycleModeCommand}" Content="Cycle Mode"/>
+            <Button Style="{StaticResource ActionButton}" Margin="4,0,0,0"
+                    Command="{Binding NextSessionCommand}" Content="Next ▶"/>
+        </StackPanel>
+
+        <!-- Footer -->
+        <DockPanel Grid.Row="4">
+            <TextBlock DockPanel.Dock="Left"
+                       Foreground="{StaticResource MutedForegroundBrush}"
+                       FontSize="11"
+                       Text="Use the knob to control sessions."/>
+            <Button DockPanel.Dock="Right" HorizontalAlignment="Right"
+                    Style="{StaticResource ActionButton}"
+                    Click="OnSettingsClicked"
+                    Content="Settings…"/>
+        </DockPanel>
+    </Grid>
+</Window>

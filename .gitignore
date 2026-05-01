@@ -1,0 +1,40 @@
+# Build outputs
+**/bin/
+**/obj/
+**/out/
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+
+# IDE / editor
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userprefs
+*.sln.docstates
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Installer artifacts (built by build-installer.ps1)
+installer/publish/
+installer/output/
+
+# Test results
+**/TestResults/
+coverage/
+
+# Logs
+*.log
+
+# Original upstream repo (reference only, not part of this project)
+maxmix-software/
+
+# Agent Teams Lite workflow metadata
+.atl/

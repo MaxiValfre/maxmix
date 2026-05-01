@@ -1,0 +1,5 @@
+# Build artifacts produced by build-installer.ps1.
+# `publish/` is the intermediate dotnet publish output (the payload ISCC packs).
+# `output/` holds the final MaxMixSetup.exe.
+publish/
+output/

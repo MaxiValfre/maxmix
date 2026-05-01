@@ -1,0 +1,57 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{F46AD534-C23F-4278-B117-661A83041B5E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MaxMix.Core", "src\MaxMix.Core\MaxMix.Core.csproj", "{C002E6F7-7604-40A5-B7FF-CA6A75722974}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MaxMix.Serial", "src\MaxMix.Serial\MaxMix.Serial.csproj", "{58622BA5-24F6-448F-ADEF-AFFE631E7A91}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MaxMix.Audio", "src\MaxMix.Audio\MaxMix.Audio.csproj", "{489A1CD1-CE48-4C21-A79C-54F008EB6BD2}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MaxMix.App", "src\MaxMix.App\MaxMix.App.csproj", "{017EBCDA-9053-4000-A8C1-628E9B0AAD68}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{8921357E-0CBD-4CDA-8466-15939AAF1B6E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MaxMix.Tests", "tests\MaxMix.Tests\MaxMix.Tests.csproj", "{01FFADCB-246E-4108-BE8E-D10944A5A9B1}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{C002E6F7-7604-40A5-B7FF-CA6A75722974}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C002E6F7-7604-40A5-B7FF-CA6A75722974}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C002E6F7-7604-40A5-B7FF-CA6A75722974}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C002E6F7-7604-40A5-B7FF-CA6A75722974}.Release|Any CPU.Build.0 = Release|Any CPU
+		{58622BA5-24F6-448F-ADEF-AFFE631E7A91}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{58622BA5-24F6-448F-ADEF-AFFE631E7A91}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{58622BA5-24F6-448F-ADEF-AFFE631E7A91}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{58622BA5-24F6-448F-ADEF-AFFE631E7A91}.Release|Any CPU.Build.0 = Release|Any CPU
+		{489A1CD1-CE48-4C21-A79C-54F008EB6BD2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{489A1CD1-CE48-4C21-A79C-54F008EB6BD2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{489A1CD1-CE48-4C21-A79C-54F008EB6BD2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{489A1CD1-CE48-4C21-A79C-54F008EB6BD2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{017EBCDA-9053-4000-A8C1-628E9B0AAD68}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{017EBCDA-9053-4000-A8C1-628E9B0AAD68}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{017EBCDA-9053-4000-A8C1-628E9B0AAD68}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{017EBCDA-9053-4000-A8C1-628E9B0AAD68}.Release|Any CPU.Build.0 = Release|Any CPU
+		{01FFADCB-246E-4108-BE8E-D10944A5A9B1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{01FFADCB-246E-4108-BE8E-D10944A5A9B1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{01FFADCB-246E-4108-BE8E-D10944A5A9B1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{01FFADCB-246E-4108-BE8E-D10944A5A9B1}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{C002E6F7-7604-40A5-B7FF-CA6A75722974} = {F46AD534-C23F-4278-B117-661A83041B5E}
+		{58622BA5-24F6-448F-ADEF-AFFE631E7A91} = {F46AD534-C23F-4278-B117-661A83041B5E}
+		{489A1CD1-CE48-4C21-A79C-54F008EB6BD2} = {F46AD534-C23F-4278-B117-661A83041B5E}
+		{017EBCDA-9053-4000-A8C1-628E9B0AAD68} = {F46AD534-C23F-4278-B117-661A83041B5E}
+		{01FFADCB-246E-4108-BE8E-D10944A5A9B1} = {8921357E-0CBD-4CDA-8466-15939AAF1B6E}
+	EndGlobalSection
+EndGlobal

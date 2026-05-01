@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      We expose ILogger<T> on public surfaces (constructors of the layer
+      services). Microsoft.Extensions.Logging.Abstractions is the no-deps
+      contract package — it does NOT pull a sink implementation, so this
+      assembly stays sink-agnostic. Sinks (Serilog) are wired in MaxMix.App.
+    -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>
