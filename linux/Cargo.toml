@@ -4,6 +4,7 @@ members = [
     "crates/maxmix-protocol",
     "crates/maxmix-serial",
     "crates/maxmix-audio",
+    "crates/maxmix-core",
 ]
 
 [workspace.package]

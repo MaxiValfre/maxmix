@@ -24,8 +24,8 @@ pub mod sanitize;
 pub use crc::crc8;
 pub use frame::{encode_frame, FrameDecoder, RawFrame, MAX_PAYLOAD, SOF};
 pub use message::{
-    DeviceToHost, HostToDevice, LightingConfig, Rgb, SessionInfo, SessionSlot, VolumeData,
-    PROTO_VERSION,
+    DeviceToHost, HostToDevice, LightingConfig, LightingMode, Rgb, SessionInfo, SessionSlot,
+    VolumeData, PROTO_VERSION,
 };
 pub use sanitize::to_ascii_name;
 
