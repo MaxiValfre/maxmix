@@ -1,0 +1,31 @@
+[package]
+name = "maxmix-daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "MaxMix Linux daemon: wires serial, audio, and orchestration with tray and autostart."
+
+[[bin]]
+name = "maxmixd"
+path = "src/main.rs"
+
+[features]
+default = ["tray"]
+tray = ["dep:ksni"]
+
+[dependencies]
+maxmix-protocol = { path = "../maxmix-protocol" }
+maxmix-serial = { path = "../maxmix-serial" }
+maxmix-audio = { path = "../maxmix-audio" }
+maxmix-core = { path = "../maxmix-core" }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "registry"] }
+tracing-appender = "0.2"
+dirs = "5"
+fs2 = "0.4"
+ctrlc = { version = "3", features = ["termination"] }
+ksni = { version = "0.2", optional = true }
+
+[lints.rust]
+unsafe_code = "forbid"

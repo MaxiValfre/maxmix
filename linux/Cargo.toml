@@ -5,6 +5,7 @@ members = [
     "crates/maxmix-serial",
     "crates/maxmix-audio",
     "crates/maxmix-core",
+    "crates/maxmix-daemon",
 ]
 
 [workspace.package]
