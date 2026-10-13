@@ -18,7 +18,7 @@ pub fn desktop_entry(exec_path: &str) -> String {
          Exec={exec_path}\n\
          Icon=audio-volume-high\n\
          Terminal=false\n\
-         Categories=Utility;AudioVideo;\n\
+         Categories=AudioVideo;Audio;Mixer;\n\
          X-GNOME-Autostart-enabled=true\n"
     )
 }

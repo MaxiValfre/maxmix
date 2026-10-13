@@ -209,6 +209,7 @@ fn migrate(settings: &mut AppSettings) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
     use tempfile::tempdir;

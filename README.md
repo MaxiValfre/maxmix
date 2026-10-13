@@ -10,6 +10,10 @@ byte-for-byte. The five well-known bugs in the original desktop are
 explicitly regression-tested in
 [`tests/MaxMix.Tests/Regression/OriginalBugRegressionTests.cs`](tests/MaxMix.Tests/Regression/OriginalBugRegressionTests.cs).
 
+> **Linux:** a Rust rewrite with new v2 firmware lives in [`linux/`](linux/README.md)
+> and [`firmware/`](firmware/README.md). It uses an incompatible protocol and
+> needs the v2 firmware.
+
 ## Features
 
 - Strict binary protocol codec — no desync from the original Bug #1.

@@ -1,0 +1,3 @@
+# MaxMix (CH340 USB-serial, VID 1a86 PID 7523).
+# uaccess grants the logged-in desktop user access without joining uucp/dialout.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", MODE="0660", GROUP="uucp", TAG+="uaccess", SYMLINK+="maxmix"

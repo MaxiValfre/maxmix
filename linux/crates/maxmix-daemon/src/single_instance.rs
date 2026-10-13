@@ -28,6 +28,7 @@ pub fn acquire() -> Option<InstanceLock> {
     let path = lock_path();
     let file = OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .open(&path)
@@ -46,9 +47,9 @@ mod tests {
     fn second_acquire_on_same_file_fails() {
         // Lock a temp file directly to avoid clobbering a real daemon's lock.
         let path = std::env::temp_dir().join(format!("maxmix-test-{}.lock", std::process::id()));
-        let f1 = OpenOptions::new().create(true).read(true).write(true).open(&path).unwrap();
+        let f1 = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&path).unwrap();
         assert!(f1.try_lock_exclusive().is_ok());
-        let f2 = OpenOptions::new().create(true).read(true).write(true).open(&path).unwrap();
+        let f2 = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&path).unwrap();
         assert!(f2.try_lock_exclusive().is_err(), "second lock must fail");
         let _ = fs2::FileExt::unlock(&f1);
         let _ = std::fs::remove_file(&path);

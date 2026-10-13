@@ -40,7 +40,7 @@ Windows/.NET app. The existing .NET codec (src/) is reference-only (protocol ora
 | T5 | S1,S10 | `maxmix-daemon` binary: wiring, tray, single-instance, autostart, logging | (this) | done (2 tests + live smoke) |
 | T6 | S10 | `maxmix-ui` (slint) on-demand config window | (this) | done (4 ui + 3 core + 2 watch tests, live hot-reload) |
 | T7 | S7,S6 | New firmware for ATmega328p: protocol v2, OLED, encoder, autonomous RGB | (this) | core done (42 C checks vs Rust vectors); sketch AVR compile + flash PENDING (no avr toolchain) |
-| T8 | S12 | Packaging (AUR/AppImage) + docs (README Linux, serial group setup) | - | pending |
+| T8 | S12 | Packaging (AUR/AppImage) + docs (README Linux, serial group setup) | (this) | done: PKGBUILD + udev + desktop + docs; AppImage dropped; makepkg end-to-end not run (branch not pushed) |
 
 ## Log
 
@@ -53,3 +53,6 @@ Windows/.NET app. The existing .NET codec (src/) is reference-only (protocol ora
 - **L2** Environment (this machine, CachyOS): PipeWire 1.6.9 + pipewire-pulse; `/dev/ttyUSB0` present (root:uucp,
   user `max` not in `uucp`); Rust 1.99 installed; .NET NOT installed (kept as read-only reference);
   libpulse dev + clang/gcc present.
+- **L3** Evidence: 83 Rust tests + 42 firmware C checks (vs Rust-generated vectors), clippy clean. Live: PulseBackend
+  enumerated a real Chrome sink-input; maxmixd idle RSS ~11.7 MB, 1.4 MB binary, 6 threads; settings hot-reload applied;
+  serial open fails EACCES (user not in uucp) → backoff as designed. Open: AVR compile + flash + hardware E2E (T7).

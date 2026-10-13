@@ -22,14 +22,14 @@ pub fn scan_ports() -> Vec<PortCandidate> {
     let ports = serialport::available_ports().unwrap_or_default();
     ports
         .into_iter()
-        .filter_map(|p| match p.port_type {
-            SerialPortType::UsbPort(usb) => Some(PortCandidate {
+        .map(|p| match p.port_type {
+            SerialPortType::UsbPort(usb) => PortCandidate {
                 path: p.port_name,
                 is_ch340: is_ch340(&usb),
-            }),
+            },
             // Keep raw tty devices too (some adapters don't surface USB metadata).
             SerialPortType::Unknown | SerialPortType::PciPort | SerialPortType::BluetoothPort => {
-                Some(PortCandidate { path: p.port_name, is_ch340: false })
+                PortCandidate { path: p.port_name, is_ch340: false }
             }
         })
         .collect()

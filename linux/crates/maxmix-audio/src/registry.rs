@@ -32,7 +32,6 @@ impl SessionRegistry {
     }
 
     /// Current sessions, order unspecified.
-    #[must_use]
     pub fn sessions(&self) -> impl Iterator<Item = &AudioSession> {
         self.sessions.values()
     }

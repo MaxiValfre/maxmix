@@ -1,0 +1,33 @@
+# Maintainer: MaxiValfre
+pkgname=maxmix
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Linux companion daemon for the MaxMix hardware audio mixer (PipeWire/PulseAudio)"
+arch=('x86_64' 'aarch64')
+url="https://github.com/MaxiValfre/maxmix"
+license=('Apache-2.0')
+depends=('libpulse' 'systemd-libs' 'dbus' 'libxkbcommon' 'fontconfig')
+makedepends=('cargo' 'git')
+source=("$pkgname::git+$url.git#branch=feat/linux-rust-rewrite")
+sha256sums=('SKIP')
+
+build() {
+  cd "$pkgname/linux"
+  export CARGO_TARGET_DIR=target
+  cargo build --release --locked -p maxmix-daemon -p maxmix-ui
+}
+
+check() {
+  cd "$pkgname/linux"
+  cargo test --release --locked --workspace
+}
+
+package() {
+  cd "$pkgname/linux"
+  install -Dm755 target/release/maxmixd "$pkgdir/usr/bin/maxmixd"
+  install -Dm755 target/release/maxmix-settings "$pkgdir/usr/bin/maxmix-settings"
+  install -Dm644 packaging/60-maxmix.rules "$pkgdir/usr/lib/udev/rules.d/60-maxmix.rules"
+  install -Dm644 packaging/maxmix.desktop "$pkgdir/usr/share/applications/maxmix.desktop"
+  install -Dm644 packaging/maxmix-settings.desktop "$pkgdir/usr/share/applications/maxmix-settings.desktop"
+  install -Dm644 ../LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

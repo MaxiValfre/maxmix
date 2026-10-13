@@ -35,7 +35,7 @@ impl RealLink {
         let port = serialport::new(path, BAUD)
             .timeout(Duration::from_millis(50))
             .open()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            .map_err(io::Error::other)?;
         Ok(Self { port })
     }
 }
@@ -57,7 +57,6 @@ impl SerialLink for RealLink {
 }
 
 /// Default hardware link factory: scan ports each attempt, prefer CH340, open it.
-#[must_use]
 pub fn hardware_link_factory() -> LinkFactory {
     Box::new(|| {
         let candidates = scan_ports();
