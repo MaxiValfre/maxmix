@@ -1,0 +1,19 @@
+[package]
+name = "maxmix-serial"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "MaxMix serial transport: connection state machine, handshake, reconnect, heartbeat."
+
+[features]
+# Exposes the in-memory reactive FakeLink to downstream crates' tests.
+testing = []
+
+[dependencies]
+maxmix-protocol = { path = "../maxmix-protocol" }
+serialport = "4.5"
+tracing = "0.1"
+
+[lints.rust]
+unsafe_code = "forbid"
