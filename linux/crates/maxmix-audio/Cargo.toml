@@ -1,0 +1,20 @@
+[package]
+name = "maxmix-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "MaxMix audio session manager: stable identity, reconciliation, PulseAudio backend."
+
+[features]
+default = ["pulse"]
+# The real PulseAudio backend (libpulse). Disable for pure-logic test builds.
+pulse = ["dep:libpulse-binding"]
+
+[dependencies]
+maxmix-protocol = { path = "../maxmix-protocol" }
+tracing = "0.1"
+libpulse-binding = { version = "2.28", optional = true }
+
+[lints.rust]
+unsafe_code = "forbid"

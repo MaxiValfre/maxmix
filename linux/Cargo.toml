@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/maxmix-protocol",
     "crates/maxmix-serial",
+    "crates/maxmix-audio",
 ]
 
 [workspace.package]
