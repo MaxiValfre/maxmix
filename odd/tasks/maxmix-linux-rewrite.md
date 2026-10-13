@@ -60,3 +60,6 @@ Windows/.NET app. The existing .NET codec (src/) is reference-only (protocol ora
   v2 firmware: 18794 B flash (61%), 876 B RAM (42%). Flashed OK; maxmixd handshake → `device connected: fw 2.0` → Ready.
   Pending: physical E2E (OLED, ring, knob volume/mute, navigation) and Config.h pixel/OLED values.
 - **L5** (user): "Bien ahi funca pero la pantalla esta al revez. No es igual la presentaicon al firm original pero rotandolo se baja el volumen y todo" → added OLED_ROTATION=2.
+- **L6** (user): "es la que decia la pagina oficial, no recuerdo el tamaño. Igualmente por ahora dejalo asi mañana seguimos"
+  → explicit stop. T7 open: confirm OLED orientation after fc5ce8b, OLED size (official MaxMix kit spec), ring LED
+  count/direction, and screen layout closer to stock firmware.
