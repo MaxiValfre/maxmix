@@ -20,6 +20,8 @@
 #define OLED_WIDTH 128
 #define OLED_HEIGHT 32
 #define OLED_ADDRESS 0x3C
+/* 0 = normal, 2 = 180 degrees (the MaxMix enclosure mounts the OLED upside down). */
+#define OLED_ROTATION 2
 
 #define LONG_PRESS_MS 600
 #define FRAME_MS 33 /* ~30 fps ring refresh */

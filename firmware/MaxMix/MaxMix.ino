@@ -260,6 +260,7 @@ void setup() {
     ring.begin();
     ring.show();
     oled.begin(SSD1306_SWITCHCAPVCC, OLED_ADDRESS);
+    oled.setRotation(OLED_ROTATION);
     last_input_ms = millis();
 }
 

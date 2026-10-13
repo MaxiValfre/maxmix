@@ -59,3 +59,4 @@ Windows/.NET app. The existing .NET codec (src/) is reference-only (protocol ora
 - **L4** Hardware: Nano has the NEW bootloader (115200). Stock 1.5.6 flash backed up to firmware/backup/ (gitignored).
   v2 firmware: 18794 B flash (61%), 876 B RAM (42%). Flashed OK; maxmixd handshake → `device connected: fw 2.0` → Ready.
   Pending: physical E2E (OLED, ring, knob volume/mute, navigation) and Config.h pixel/OLED values.
+- **L5** (user): "Bien ahi funca pero la pantalla esta al revez. No es igual la presentaicon al firm original pero rotandolo se baja el volumen y todo" → added OLED_ROTATION=2.
