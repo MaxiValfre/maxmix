@@ -1,0 +1,12 @@
+[package]
+name = "maxmix-protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "MaxMix serial protocol v2: framed + CRC8 codec and message types (host side)."
+
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"

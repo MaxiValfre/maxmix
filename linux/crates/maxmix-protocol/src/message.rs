@@ -1,0 +1,528 @@
+//! Typed messages for protocol v2 and their (de)serialisation to raw frames.
+
+use crate::frame::{encode_frame, RawFrame};
+use crate::sanitize::{decode_name_field, encode_name_field, NAME_FIELD_BYTES};
+use crate::DecodeError;
+
+/// Protocol version advertised in the handshake. Firmware and host are versioned
+/// together; a mismatch is a hard incompatibility.
+pub const PROTO_VERSION: u8 = 2;
+
+// ---- Message type bytes -------------------------------------------------
+
+// Host -> Device
+const T_HELLO: u8 = 0x01;
+const T_PING: u8 = 0x02;
+const T_SESSION_INFO: u8 = 0x10;
+const T_SESSION_DATA: u8 = 0x11;
+const T_VOLUME_SET: u8 = 0x12;
+const T_LIGHTING_CONFIG: u8 = 0x20;
+const T_DEVICE_CONFIG: u8 = 0x21;
+
+// Device -> Host
+const T_HELLO_ACK: u8 = 0x81;
+const T_PONG: u8 = 0x82;
+const T_VOLUME_CHANGE: u8 = 0x90;
+const T_BUTTON: u8 = 0x91;
+const T_SESSION_REQUEST: u8 = 0x92;
+
+const SEVEN_BIT: u8 = 0x7F;
+const HIGH_BIT: u8 = 0x80;
+
+/// An RGB colour (no alpha).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rgb {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+}
+
+impl Rgb {
+    #[must_use]
+    pub const fn new(r: u8, g: u8, b: u8) -> Self {
+        Self { r, g, b }
+    }
+}
+
+/// Per-session volume state, packed into 2 bytes on the wire:
+/// `byte0 = id(7) | isDefault(hi)`, `byte1 = volume(7) | isMuted(hi)`.
+/// This layout is inherited verbatim from the firmware contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VolumeData {
+    /// Stable session id, 0..=127.
+    pub id: u8,
+    pub is_default: bool,
+    /// Volume 0..=100.
+    pub volume: u8,
+    pub is_muted: bool,
+}
+
+impl VolumeData {
+    #[must_use]
+    pub fn pack(self) -> [u8; 2] {
+        [
+            (self.id & SEVEN_BIT) | if self.is_default { HIGH_BIT } else { 0 },
+            (self.volume & SEVEN_BIT) | if self.is_muted { HIGH_BIT } else { 0 },
+        ]
+    }
+
+    #[must_use]
+    pub fn unpack(bytes: [u8; 2]) -> Self {
+        Self {
+            id: bytes[0] & SEVEN_BIT,
+            is_default: bytes[0] & HIGH_BIT != 0,
+            volume: bytes[1] & SEVEN_BIT,
+            is_muted: bytes[1] & HIGH_BIT != 0,
+        }
+    }
+}
+
+/// The firmware's four display slots.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionSlot {
+    Current = 0,
+    Alternate = 1,
+    Previous = 2,
+    Next = 3,
+}
+
+impl SessionSlot {
+    #[must_use]
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(Self::Current),
+            1 => Some(Self::Alternate),
+            2 => Some(Self::Previous),
+            3 => Some(Self::Next),
+            _ => None,
+        }
+    }
+}
+
+/// Firmware-side lighting mode. The firmware runs the animation autonomously;
+/// the host sets the config once rather than streaming colour frames.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LightingMode {
+    Static = 0,
+    Pulse = 1,
+    Fade = 2,
+}
+
+impl LightingMode {
+    #[must_use]
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(Self::Static),
+            1 => Some(Self::Pulse),
+            2 => Some(Self::Fade),
+            _ => None,
+        }
+    }
+}
+
+/// Lighting configuration pushed to the firmware once; it owns the animation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LightingConfig {
+    pub mode: LightingMode,
+    /// Animation speed 1..=10.
+    pub speed: u8,
+    pub color_min: Rgb,
+    pub color_max: Rgb,
+    /// Lighting mode to use while idle (device autonomous).
+    pub idle_mode: LightingMode,
+    /// Seconds of inactivity before idle lighting kicks in (0 = disabled).
+    pub idle_timeout_s: u8,
+}
+
+/// Session counts + current selection, sent before the per-slot data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SessionInfo {
+    pub mode: u8,
+    pub current: u8,
+    pub count: u8,
+}
+
+/// Messages the host sends to the device.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostToDevice {
+    Hello { proto_version: u8 },
+    Ping,
+    SessionInfo(SessionInfo),
+    SessionData {
+        slot: SessionSlot,
+        volume: VolumeData,
+        name: String,
+    },
+    VolumeSet {
+        slot: SessionSlot,
+        volume: VolumeData,
+    },
+    Lighting(LightingConfig),
+    DeviceConfig {
+        acceleration: u8,
+        sleep_after_s: u8,
+        continuous_scroll: bool,
+        ring_reversed: bool,
+    },
+}
+
+impl HostToDevice {
+    /// Serialise into a complete framed byte buffer ready for the serial port.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        match self {
+            HostToDevice::Hello { proto_version } => encode_frame(T_HELLO, &[*proto_version]),
+            HostToDevice::Ping => encode_frame(T_PING, &[]),
+            HostToDevice::SessionInfo(info) => {
+                encode_frame(T_SESSION_INFO, &[info.mode, info.current, info.count])
+            }
+            HostToDevice::SessionData { slot, volume, name } => {
+                let mut p = Vec::with_capacity(1 + 2 + NAME_FIELD_BYTES);
+                p.push(*slot as u8);
+                p.extend_from_slice(&volume.pack());
+                p.extend_from_slice(&encode_name_field(name));
+                encode_frame(T_SESSION_DATA, &p)
+            }
+            HostToDevice::VolumeSet { slot, volume } => {
+                let mut p = Vec::with_capacity(3);
+                p.push(*slot as u8);
+                p.extend_from_slice(&volume.pack());
+                encode_frame(T_VOLUME_SET, &p)
+            }
+            HostToDevice::Lighting(cfg) => {
+                let p = [
+                    cfg.mode as u8,
+                    cfg.speed,
+                    cfg.color_min.r,
+                    cfg.color_min.g,
+                    cfg.color_min.b,
+                    cfg.color_max.r,
+                    cfg.color_max.g,
+                    cfg.color_max.b,
+                    cfg.idle_mode as u8,
+                    cfg.idle_timeout_s,
+                ];
+                encode_frame(T_LIGHTING_CONFIG, &p)
+            }
+            HostToDevice::DeviceConfig {
+                acceleration,
+                sleep_after_s,
+                continuous_scroll,
+                ring_reversed,
+            } => {
+                let flags = (u8::from(*continuous_scroll)) | (u8::from(*ring_reversed) << 1);
+                encode_frame(T_DEVICE_CONFIG, &[*acceleration, *sleep_after_s, flags])
+            }
+        }
+    }
+}
+
+/// Messages the device sends to the host.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeviceToHost {
+    HelloAck {
+        fw_major: u8,
+        fw_minor: u8,
+        capabilities: u8,
+    },
+    Pong,
+    /// Knob turn / press changed a slot's volume or mute.
+    VolumeChange {
+        slot: SessionSlot,
+        volume: VolumeData,
+    },
+    /// A physical button event (0 = mode, 1 = select, ...).
+    Button {
+        event: u8,
+    },
+    /// The user scrolled the knob to navigate sessions (0 = prev, 1 = next).
+    SessionRequest {
+        direction: u8,
+    },
+}
+
+impl DeviceToHost {
+    /// Serialise into a complete framed byte buffer (used by firmware tests/fakes).
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        match self {
+            DeviceToHost::HelloAck {
+                fw_major,
+                fw_minor,
+                capabilities,
+            } => encode_frame(T_HELLO_ACK, &[*fw_major, *fw_minor, *capabilities]),
+            DeviceToHost::Pong => encode_frame(T_PONG, &[]),
+            DeviceToHost::VolumeChange { slot, volume } => {
+                let mut p = Vec::with_capacity(3);
+                p.push(*slot as u8);
+                p.extend_from_slice(&volume.pack());
+                encode_frame(T_VOLUME_CHANGE, &p)
+            }
+            DeviceToHost::Button { event } => encode_frame(T_BUTTON, &[*event]),
+            DeviceToHost::SessionRequest { direction } => {
+                encode_frame(T_SESSION_REQUEST, &[*direction])
+            }
+        }
+    }
+
+    /// Parse a device->host message from a verified raw frame.
+    pub fn decode(frame: &RawFrame) -> Result<Self, DecodeError> {
+        let p = &frame.payload;
+        let need = |n: usize| -> Result<(), DecodeError> {
+            if p.len() == n {
+                Ok(())
+            } else {
+                Err(DecodeError::BadLength {
+                    msg_type: frame.msg_type,
+                    got: p.len(),
+                })
+            }
+        };
+        match frame.msg_type {
+            T_HELLO_ACK => {
+                need(3)?;
+                Ok(DeviceToHost::HelloAck {
+                    fw_major: p[0],
+                    fw_minor: p[1],
+                    capabilities: p[2],
+                })
+            }
+            T_PONG => {
+                need(0)?;
+                Ok(DeviceToHost::Pong)
+            }
+            T_VOLUME_CHANGE => {
+                need(3)?;
+                let slot = SessionSlot::from_u8(p[0]).ok_or(DecodeError::BadField("slot"))?;
+                Ok(DeviceToHost::VolumeChange {
+                    slot,
+                    volume: VolumeData::unpack([p[1], p[2]]),
+                })
+            }
+            T_BUTTON => {
+                need(1)?;
+                Ok(DeviceToHost::Button { event: p[0] })
+            }
+            T_SESSION_REQUEST => {
+                need(1)?;
+                Ok(DeviceToHost::SessionRequest { direction: p[0] })
+            }
+            other => Err(DecodeError::UnknownType(other)),
+        }
+    }
+}
+
+/// Parse a host->device message from a verified raw frame (used by firmware
+/// tests and to assert host encodings round-trip).
+pub fn decode_host_to_device(frame: &RawFrame) -> Result<HostToDevice, DecodeError> {
+    let p = &frame.payload;
+    let need = |n: usize| -> Result<(), DecodeError> {
+        if p.len() == n {
+            Ok(())
+        } else {
+            Err(DecodeError::BadLength {
+                msg_type: frame.msg_type,
+                got: p.len(),
+            })
+        }
+    };
+    match frame.msg_type {
+        T_HELLO => {
+            need(1)?;
+            Ok(HostToDevice::Hello { proto_version: p[0] })
+        }
+        T_PING => {
+            need(0)?;
+            Ok(HostToDevice::Ping)
+        }
+        T_SESSION_INFO => {
+            need(3)?;
+            Ok(HostToDevice::SessionInfo(SessionInfo {
+                mode: p[0],
+                current: p[1],
+                count: p[2],
+            }))
+        }
+        T_SESSION_DATA => {
+            need(1 + 2 + NAME_FIELD_BYTES)?;
+            let slot = SessionSlot::from_u8(p[0]).ok_or(DecodeError::BadField("slot"))?;
+            let volume = VolumeData::unpack([p[1], p[2]]);
+            let name = decode_name_field(&p[3..3 + NAME_FIELD_BYTES]);
+            Ok(HostToDevice::SessionData { slot, volume, name })
+        }
+        T_VOLUME_SET => {
+            need(3)?;
+            let slot = SessionSlot::from_u8(p[0]).ok_or(DecodeError::BadField("slot"))?;
+            Ok(HostToDevice::VolumeSet {
+                slot,
+                volume: VolumeData::unpack([p[1], p[2]]),
+            })
+        }
+        T_LIGHTING_CONFIG => {
+            need(10)?;
+            let mode = LightingMode::from_u8(p[0]).ok_or(DecodeError::BadField("mode"))?;
+            let idle_mode = LightingMode::from_u8(p[8]).ok_or(DecodeError::BadField("idle_mode"))?;
+            Ok(HostToDevice::Lighting(LightingConfig {
+                mode,
+                speed: p[1],
+                color_min: Rgb::new(p[2], p[3], p[4]),
+                color_max: Rgb::new(p[5], p[6], p[7]),
+                idle_mode,
+                idle_timeout_s: p[9],
+            }))
+        }
+        T_DEVICE_CONFIG => {
+            need(3)?;
+            Ok(HostToDevice::DeviceConfig {
+                acceleration: p[0],
+                sleep_after_s: p[1],
+                continuous_scroll: p[2] & 0x01 != 0,
+                ring_reversed: p[2] & 0x02 != 0,
+            })
+        }
+        other => Err(DecodeError::UnknownType(other)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::frame::FrameDecoder;
+
+    /// Decode exactly one frame out of a byte buffer, for round-trip asserts.
+    fn one_frame(bytes: &[u8]) -> RawFrame {
+        let mut d = FrameDecoder::new();
+        d.push(bytes);
+        d.next_frame().expect("a frame")
+    }
+
+    // ---- VolumeData packing oracle (ported from the .NET codec spec) ----
+
+    #[test]
+    fn volumedata_basic_pack_matches_firmware_contract() {
+        // Spotify-like: id=2, not default, 75%, not muted -> [0x02, 75].
+        let v = VolumeData { id: 2, is_default: false, volume: 75, is_muted: false };
+        assert_eq!(v.pack(), [0x02, 75]);
+    }
+
+    #[test]
+    fn volumedata_high_bits_set() {
+        // id=5 default, 100% muted -> byte0 = 5|0x80, byte1 = 100|0x80.
+        let v = VolumeData { id: 5, is_default: true, volume: 100, is_muted: true };
+        assert_eq!(v.pack(), [0x85, 0xE4]);
+    }
+
+    #[test]
+    fn volumedata_round_trips() {
+        for id in [0u8, 1, 63, 127] {
+            for vol in [0u8, 50, 100, 127] {
+                for d in [false, true] {
+                    for m in [false, true] {
+                        let v = VolumeData { id, is_default: d, volume: vol, is_muted: m };
+                        assert_eq!(VolumeData::unpack(v.pack()), v);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn volumedata_id_masked_to_7_bits() {
+        // id only occupies the low 7 bits; the high bit is the default flag.
+        let v = VolumeData { id: 0x7F, is_default: false, volume: 1, is_muted: false };
+        assert_eq!(v.pack()[0] & 0x80, 0, "default flag must stay clear");
+    }
+
+    // ---- Message round-trips ----
+
+    #[test]
+    fn session_data_round_trip_with_name() {
+        let msg = HostToDevice::SessionData {
+            slot: SessionSlot::Current,
+            volume: VolumeData { id: 2, is_default: false, volume: 75, is_muted: false },
+            name: "Spotify".into(),
+        };
+        let frame = one_frame(&msg.encode());
+        assert_eq!(decode_host_to_device(&frame).unwrap(), msg);
+    }
+
+    #[test]
+    fn session_data_payload_is_fixed_33_bytes() {
+        let msg = HostToDevice::SessionData {
+            slot: SessionSlot::Next,
+            volume: VolumeData { id: 0, is_default: true, volume: 0, is_muted: false },
+            name: "x".into(),
+        };
+        let frame = one_frame(&msg.encode());
+        // slot(1) + volume(2) + name field(30) = 33.
+        assert_eq!(frame.payload.len(), 33);
+    }
+
+    #[test]
+    fn lighting_config_round_trip() {
+        let msg = HostToDevice::Lighting(LightingConfig {
+            mode: LightingMode::Pulse,
+            speed: 7,
+            color_min: Rgb::new(0, 0, 32),
+            color_max: Rgb::new(0, 128, 255),
+            idle_mode: LightingMode::Fade,
+            idle_timeout_s: 30,
+        });
+        let frame = one_frame(&msg.encode());
+        assert_eq!(decode_host_to_device(&frame).unwrap(), msg);
+    }
+
+    #[test]
+    fn device_config_flags_pack_independently() {
+        let msg = HostToDevice::DeviceConfig {
+            acceleration: 3,
+            sleep_after_s: 5,
+            continuous_scroll: true,
+            ring_reversed: true,
+        };
+        let frame = one_frame(&msg.encode());
+        assert_eq!(decode_host_to_device(&frame).unwrap(), msg);
+        // flags byte: bit0 scroll, bit1 ring -> 0b11 = 3.
+        assert_eq!(frame.payload[2], 0b11);
+    }
+
+    #[test]
+    fn device_to_host_volume_change_round_trip() {
+        let msg = DeviceToHost::VolumeChange {
+            slot: SessionSlot::Current,
+            volume: VolumeData { id: 9, is_default: false, volume: 42, is_muted: true },
+        };
+        let frame = one_frame(&msg.encode());
+        assert_eq!(DeviceToHost::decode(&frame).unwrap(), msg);
+    }
+
+    #[test]
+    fn hello_handshake_round_trip() {
+        let hello = HostToDevice::Hello { proto_version: PROTO_VERSION };
+        let frame = one_frame(&hello.encode());
+        assert_eq!(decode_host_to_device(&frame).unwrap(), hello);
+
+        let ack = DeviceToHost::HelloAck { fw_major: 2, fw_minor: 0, capabilities: 0x01 };
+        let frame = one_frame(&ack.encode());
+        assert_eq!(DeviceToHost::decode(&frame).unwrap(), ack);
+    }
+
+    #[test]
+    fn wrong_length_is_rejected() {
+        // A PONG frame must carry no payload; a padded one is rejected.
+        let bogus = RawFrame { msg_type: 0x82, payload: vec![0] };
+        assert!(matches!(
+            DeviceToHost::decode(&bogus),
+            Err(DecodeError::BadLength { .. })
+        ));
+    }
+
+    #[test]
+    fn unknown_type_is_rejected() {
+        let bogus = RawFrame { msg_type: 0x77, payload: vec![] };
+        assert!(matches!(
+            DeviceToHost::decode(&bogus),
+            Err(DecodeError::UnknownType(0x77))
+        ));
+    }
+}
