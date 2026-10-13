@@ -38,7 +38,7 @@ Windows/.NET app. The existing .NET codec (src/) is reference-only (protocol ora
 | T3 | S2,S3 | `maxmix-audio` crate: libpulse session manager, stable identity, reconciliation | (this) | done (14 tests + live smoke) |
 | T4 | S3,S4,S6 | `maxmix-core` crate: orchestration, slot mapping, feedback guard, settings | (this) | done (23 tests) |
 | T5 | S1,S10 | `maxmix-daemon` binary: wiring, tray, single-instance, autostart, logging | (this) | done (2 tests + live smoke) |
-| T6 | S10 | `maxmix-ui` (slint) on-demand config window | - | pending |
+| T6 | S10 | `maxmix-ui` (slint) on-demand config window | (this) | done (4 ui + 3 core + 2 watch tests, live hot-reload) |
 | T7 | S7,S6 | New firmware for ATmega328p: protocol v2, OLED, encoder, autonomous RGB | - | pending |
 | T8 | S12 | Packaging (AUR/AppImage) + docs (README Linux, serial group setup) | - | pending |
 

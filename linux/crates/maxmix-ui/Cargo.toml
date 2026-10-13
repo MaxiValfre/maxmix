@@ -1,0 +1,18 @@
+[package]
+name = "maxmix-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "MaxMix on-demand settings window (Slint, software renderer)."
+
+[[bin]]
+name = "maxmix-settings"
+path = "src/main.rs"
+
+[dependencies]
+maxmix-core = { path = "../maxmix-core" }
+slint = { version = "1", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-software"] }
+
+[lints.rust]
+unsafe_code = "deny"  # slint! macro output needs a local allow

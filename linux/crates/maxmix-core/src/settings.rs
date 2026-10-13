@@ -26,6 +26,46 @@ impl Color {
     }
 }
 
+impl Color {
+    /// Format as `#RRGGBB`.
+    #[must_use]
+    pub fn to_hex(self) -> String {
+        format!("#{:02X}{:02X}{:02X}", self.r, self.g, self.b)
+    }
+
+    /// Parse `#RRGGBB` or `RRGGBB` (case-insensitive). Returns `None` if invalid.
+    #[must_use]
+    pub fn from_hex(text: &str) -> Option<Self> {
+        let t = text.trim().trim_start_matches('#');
+        if t.len() != 6 || !t.chars().all(|c| c.is_ascii_hexdigit()) {
+            return None;
+        }
+        let byte = |i: usize| u8::from_str_radix(&t[i..i + 2], 16).ok();
+        Some(Self::new(byte(0)?, byte(2)?, byte(4)?))
+    }
+}
+
+impl Lighting {
+    /// All modes in UI order.
+    pub const ALL: [Lighting; 3] = [Lighting::Static, Lighting::Pulse, Lighting::Fade];
+
+    /// Index into [`Lighting::ALL`].
+    #[must_use]
+    pub fn index(self) -> usize {
+        match self {
+            Lighting::Static => 0,
+            Lighting::Pulse => 1,
+            Lighting::Fade => 2,
+        }
+    }
+
+    /// Mode for a UI index; out-of-range falls back to `Static`.
+    #[must_use]
+    pub fn from_index(i: usize) -> Self {
+        Self::ALL.get(i).copied().unwrap_or(Lighting::Static)
+    }
+}
+
 impl From<Color> for Rgb {
     fn from(c: Color) -> Self {
         Rgb::new(c.r, c.g, c.b)
@@ -221,5 +261,28 @@ mod tests {
         let mut s = AppSettings::default();
         s.lighting_speed = 99;
         assert_eq!(s.lighting_config().speed, 10);
+    }
+
+    #[test]
+    fn hex_round_trip() {
+        let c = Color::new(255, 128, 0);
+        assert_eq!(c.to_hex(), "#FF8000");
+        assert_eq!(Color::from_hex("#FF8000"), Some(c));
+        assert_eq!(Color::from_hex("ff8000"), Some(c), "no hash, lowercase");
+    }
+
+    #[test]
+    fn hex_rejects_invalid() {
+        for bad in ["", "#FFF", "#GG0000", "#FF80001", "red"] {
+            assert_eq!(Color::from_hex(bad), None, "{bad} must be rejected");
+        }
+    }
+
+    #[test]
+    fn lighting_index_round_trip_and_fallback() {
+        for m in Lighting::ALL {
+            assert_eq!(Lighting::from_index(m.index()), m);
+        }
+        assert_eq!(Lighting::from_index(99), Lighting::Static);
     }
 }

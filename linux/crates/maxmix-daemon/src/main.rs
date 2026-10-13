@@ -8,6 +8,7 @@
 
 mod audio_thread;
 mod autostart;
+mod settings_watch;
 mod single_instance;
 #[cfg(feature = "tray")]
 mod tray;
@@ -86,6 +87,8 @@ fn main() {
 
     // ---- orchestrator loop (main thread) ------------------------------
     let mut orch = Orchestrator::new(settings);
+    let mut settings_watch = settings_watch::FileWatch::new(&settings_path);
+    let mut last_settings_check = std::time::Instant::now();
 
     tracing::info!("maxmixd started");
     while !stop.load(Ordering::SeqCst) {
@@ -120,7 +123,25 @@ fn main() {
         }
 
         if open_settings.swap(false, Ordering::SeqCst) {
-            tracing::info!("settings requested (UI not yet wired)");
+            if let Err(e) = settings_watch::launch_settings() {
+                tracing::warn!("could not launch settings window: {e}");
+            }
+        }
+
+        // Hot-reload settings written by the settings window (polled ~1/s).
+        if last_settings_check.elapsed() >= Duration::from_secs(1) {
+            last_settings_check = std::time::Instant::now();
+            if settings_watch.changed() {
+                let new_settings = load_or_init(&settings_path);
+                tracing::info!("settings changed on disk; applying");
+                if let Ok(exe) = std::env::current_exe() {
+                    let exec = exe.to_string_lossy().to_string();
+                    if let Err(e) = autostart::set_autostart(new_settings.autostart, &exec) {
+                        tracing::warn!("could not update autostart entry: {e}");
+                    }
+                }
+                dispatch(orch.apply_settings(new_settings), &transport, &audio_cmd_tx);
+            }
         }
     }
 
