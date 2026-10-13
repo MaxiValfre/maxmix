@@ -56,3 +56,6 @@ Windows/.NET app. The existing .NET codec (src/) is reference-only (protocol ora
 - **L3** Evidence: 83 Rust tests + 42 firmware C checks (vs Rust-generated vectors), clippy clean. Live: PulseBackend
   enumerated a real Chrome sink-input; maxmixd idle RSS ~11.7 MB, 1.4 MB binary, 6 threads; settings hot-reload applied;
   serial open fails EACCES (user not in uucp) → backoff as designed. Open: AVR compile + flash + hardware E2E (T7).
+- **L4** Hardware: Nano has the NEW bootloader (115200). Stock 1.5.6 flash backed up to firmware/backup/ (gitignored).
+  v2 firmware: 18794 B flash (61%), 876 B RAM (42%). Flashed OK; maxmixd handshake → `device connected: fw 2.0` → Ready.
+  Pending: physical E2E (OLED, ring, knob volume/mute, navigation) and Config.h pixel/OLED values.

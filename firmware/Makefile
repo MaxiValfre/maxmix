@@ -2,11 +2,11 @@
 #   make test     - build & run the portable C core tests on the host (gcc)
 #   make vectors  - regenerate test/vectors.h from the Rust protocol crate
 #   make build    - compile the sketch for Arduino Nano (needs arduino-cli)
-#   make upload PORT=/dev/ttyUSB0 - flash the Nano (old bootloader, CH340)
+#   make upload PORT=/dev/ttyUSB0 - flash the Nano (new bootloader; old: FQBN=arduino:avr:nano:cpu=atmega328old)
 
 CC ?= gcc
 CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2
-FQBN ?= arduino:avr:nano:cpu=atmega328old
+FQBN ?= arduino:avr:nano
 PORT ?= /dev/ttyUSB0
 
 .PHONY: test vectors build upload clean

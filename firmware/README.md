@@ -30,12 +30,18 @@ sudo pacman -S --needed arduino-cli avrdude
 arduino-cli core install arduino:avr
 arduino-cli lib install "Adafruit NeoPixel" "Adafruit SSD1306" "Adafruit GFX Library"
 
-make build                     # compile for the Nano (old bootloader)
+make build                     # compile for the Nano (new bootloader, 115200)
 make upload PORT=/dev/ttyUSB0  # flash
 ```
 
-If the upload fails to sync, the board has the new bootloader. Use
-`make upload FQBN=arduino:avr:nano`.
+If the upload fails to sync, the board has the old bootloader. Use
+`make upload FQBN=arduino:avr:nano:cpu=atmega328old`.
+
+Back up the stock firmware before flashing (restore with `-U flash:w:...`):
+
+```bash
+avrdude -p m328p -c arduino -P /dev/ttyUSB0 -b 115200 -U flash:r:backup/maxmix-1.5.6-flash.hex:i
+```
 
 ## Controls
 
