@@ -26,7 +26,8 @@ static mm_decoder_t decoder;
 static mm_frame_t frame;
 static uint8_t txbuf[MM_FRAME_MAX];
 
-static mm_lighting_t lighting = {MM_LIGHT_STATIC, 5, {0, 0, 32}, {0, 128, 255}, MM_LIGHT_PULSE, 30};
+static mm_lighting_t lighting = {MM_LIGHT_STATIC, 5, {0, 0, 32}, {0, 128, 255}, MM_LIGHT_PULSE, 30,
+                                  {0, 255, 64}, {255, 0, 0}};
 static mm_devcfg_t devcfg = {50, 0, 0, 0}; /* sleep 0 = never */
 static mm_session_t sessions[4];
 static uint8_t has_session[4];
@@ -39,6 +40,15 @@ static uint8_t display_on = 1;
 static uint32_t last_input_ms = 0;
 static uint32_t last_frame_ms = 0;
 static uint32_t last_host_ms = 0;
+
+/* Ring volume feedback: after a volume/mute change the ring shows the gauge
+ * for VOL_OVERLAY_MS, easing towards the new level so the LEDs visibly
+ * advance or retreat, then returns to the lighting mode. */
+#define VOL_OVERLAY_MS 1500UL
+static uint16_t ring_level_q8 = 0;
+static uint32_t vol_overlay_until = 0;
+
+static void volume_feedback(void) { vol_overlay_until = millis() + VOL_OVERLAY_MS; }
 
 /* ---- serial ---------------------------------------------------------- */
 
@@ -62,13 +72,22 @@ static void handle_frame(const mm_frame_t *f) {
         if (mm_parse_session_info(f, &a, &b, &c)) {
             session_current = b;
             session_count = c;
-            for (uint8_t i = 0; i < 4; i++) has_session[i] = 0;
+            /* Keep showing the old data until the new SessionData frames land
+             * (clearing here flashed "No apps" between frames). */
+            if (c == 0)
+                for (uint8_t i = 0; i < 4; i++) has_session[i] = 0;
             display_dirty = 1;
         }
         break;
     case MM_T_SESSION_DATA: {
         mm_session_t s;
         if (mm_parse_session_data(f, &s)) {
+            /* Same app on screen with a new volume/mute: changed from the PC. */
+            const mm_session_t *old = &sessions[s.slot];
+            if (s.slot == MM_SLOT_CURRENT && has_session[s.slot] &&
+                strncmp(old->name, s.name, MM_NAME_BYTES) == 0 &&
+                (old->volume.volume != s.volume.volume || old->volume.is_muted != s.volume.is_muted))
+                volume_feedback();
             sessions[s.slot] = s;
             has_session[s.slot] = 1;
             display_dirty = 1;
@@ -78,6 +97,7 @@ static void handle_frame(const mm_frame_t *f) {
     case MM_T_VOLUME_SET: {
         mm_volume_t v;
         if (mm_parse_volume_set(f, &a, &v) && has_session[a]) {
+            if (a == MM_SLOT_CURRENT) volume_feedback();
             sessions[a].volume = v;
             display_dirty = 1;
         }
@@ -117,16 +137,31 @@ static void poll_serial(void) {
 
 /* ---- input ----------------------------------------------------------- */
 
-static int8_t read_encoder(void) {
+/* Quadrature decoding in the pin-change ISR (A1=PC1, A2=PC2 -> PCINT9/10),
+ * like the 1.5.x firmware: polling from loop() lost transitions while an OLED
+ * redraw blocked for ~15ms, so detents were skipped. */
+static volatile int8_t enc_steps = 0;
+
+ISR(PCINT1_vect) {
     static uint8_t prev = 0;
     static int8_t accum = 0;
     static const int8_t table[16] = {0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0};
-    uint8_t cur = (uint8_t)((digitalRead(PIN_ENCODER_A) << 1) | digitalRead(PIN_ENCODER_B));
+    uint8_t pins = PINC;
+    uint8_t cur = (uint8_t)((((pins >> 1) & 1) << 1) | ((pins >> 2) & 1));
     accum += table[(prev << 2) | cur];
     prev = cur;
-    if (accum >= 4) { accum = 0; return 1; }
-    if (accum <= -4) { accum = 0; return -1; }
-    return 0;
+    if (accum >= 4) { accum = 0; if (enc_steps < 100) enc_steps++; }
+    else if (accum <= -4) { accum = 0; if (enc_steps > -100) enc_steps--; }
+}
+
+/* Detents since the last call (signed). */
+static int8_t read_encoder(void) {
+    uint8_t sreg = SREG;
+    cli();
+    int8_t n = enc_steps;
+    enc_steps = 0;
+    SREG = sreg;
+    return n;
 }
 
 /* Exponential acceleration ported from the 1.5.x firmware:
@@ -134,7 +169,8 @@ static int8_t read_encoder(void) {
  *   step  = 1 + speed^2 / divisor  (reset to 1 when the direction changes).
  * At 100% a quick spin sweeps the whole range; at 0% every detent is 1 point. */
 #define ACCEL_DIVISOR_MAX 400UL
-static uint8_t accel_step(int8_t dir) {
+static uint8_t accel_step(int8_t steps) {
+    int8_t dir = steps > 0 ? 1 : -1;
     static uint32_t last_turn = 0;
     static int8_t last_dir = 0;
     uint32_t now = millis(), dt = now - last_turn;
@@ -143,7 +179,7 @@ static uint8_t accel_step(int8_t dir) {
     last_dir = dir;
     if (!same_dir || devcfg.acceleration == 0) return 1;
     if (dt == 0) dt = 1;
-    uint32_t speed = 1000UL / dt;
+    uint32_t speed = (uint32_t)(steps > 0 ? steps : -steps) * 1000UL / dt;
     uint32_t divisor = ((100UL - devcfg.acceleration) * ACCEL_DIVISOR_MAX) / 100UL;
     if (divisor < 1) divisor = 1;
     uint32_t step = 1 + (speed * speed) / divisor;
@@ -159,27 +195,56 @@ static void wake(void) {
     }
 }
 
-static void on_turn(int8_t dir) {
+/* Show the neighbour the host already sent us right away; the host's reply
+ * (SessionInfo + SessionData) then confirms or corrects it. */
+static void navigate_local(int8_t dir) {
+    uint8_t from = dir > 0 ? MM_SLOT_NEXT : MM_SLOT_PREVIOUS;
+    if (!has_session[from] || session_count < 2) return;
+    sessions[MM_SLOT_CURRENT] = sessions[from];
+    if (dir > 0) session_current = (uint8_t)((session_current + 1) % session_count);
+    else session_current = (uint8_t)(session_current ? session_current - 1 : session_count - 1);
+    /* Neighbours are stale until the host refreshes them. */
+    has_session[MM_SLOT_PREVIOUS] = has_session[MM_SLOT_NEXT] = 0;
+    display_dirty = 1;
+}
+
+static void on_turn(int8_t steps) {
     wake();
     if (!connected) return;
-    if (dir < 0 && devcfg.ring_reversed) dir = 1;
-    else if (dir > 0 && devcfg.ring_reversed) dir = -1;
+    if (devcfg.ring_reversed) steps = (int8_t)-steps;
+    int8_t dir = steps > 0 ? 1 : -1;
 
     if (!edit_mode) {
-        send(mm_encode_session_request(dir > 0 ? 1 : 0, txbuf));
+        uint8_t n = (uint8_t)(steps > 0 ? steps : -steps);
+        navigate_local(dir);
+        while (n--) send(mm_encode_session_request(dir > 0 ? 1 : 0, txbuf));
         return;
     }
     if (!has_session[MM_SLOT_CURRENT]) return;
     mm_volume_t *v = &sessions[MM_SLOT_CURRENT].volume;
-    int16_t vol = (int16_t)v->volume + (int16_t)dir * accel_step(dir);
+    int16_t vol = (int16_t)v->volume + (int16_t)dir * accel_step(steps);
     v->volume = (uint8_t)(vol < 0 ? 0 : (vol > 100 ? 100 : vol));
     send(mm_encode_volume_change(MM_SLOT_CURRENT, v, txbuf));
     display_dirty = 1;
+    volume_feedback();
 }
 
+static void toggle_mute(void) {
+    if (!connected || !has_session[MM_SLOT_CURRENT]) return;
+    mm_volume_t *v = &sessions[MM_SLOT_CURRENT].volume;
+    v->is_muted = !v->is_muted;
+    send(mm_encode_volume_change(MM_SLOT_CURRENT, v, txbuf));
+    display_dirty = 1;
+    volume_feedback();
+}
+
+/* Gestures: single tap = navigate/edit toggle (deferred DOUBLE_TAP_MS so it
+ * can be told apart), double tap = mute, long press = mute. */
+#define DOUBLE_TAP_MS 300
+
 static void poll_switch(void) {
-    static uint8_t was_down = 0, long_sent = 0;
-    static uint32_t down_at = 0;
+    static uint8_t was_down = 0, long_sent = 0, tap_pending = 0;
+    static uint32_t down_at = 0, tap_at = 0;
     uint8_t down = digitalRead(PIN_SWITCH) == LOW;
     uint32_t now = millis();
 
@@ -190,14 +255,20 @@ static void poll_switch(void) {
     }
     if (down && !long_sent && now - down_at >= LONG_PRESS_MS) {
         long_sent = 1;
-        if (connected && has_session[MM_SLOT_CURRENT]) {
-            mm_volume_t *v = &sessions[MM_SLOT_CURRENT].volume;
-            v->is_muted = !v->is_muted;
-            send(mm_encode_volume_change(MM_SLOT_CURRENT, v, txbuf));
-            display_dirty = 1;
-        }
+        tap_pending = 0;
+        toggle_mute();
     }
     if (!down && was_down && !long_sent && now - down_at > 30) {
+        if (tap_pending && now - tap_at <= DOUBLE_TAP_MS) {
+            tap_pending = 0; /* second tap: mute, cancel the pending toggle */
+            toggle_mute();
+        } else {
+            tap_pending = 1;
+            tap_at = now;
+        }
+    }
+    if (tap_pending && !down && now - tap_at > DOUBLE_TAP_MS) {
+        tap_pending = 0;
         edit_mode = !edit_mode;
         if (connected) send(mm_encode_button(edit_mode, txbuf));
         display_dirty = 1;
@@ -380,16 +451,31 @@ static void draw_ring(void) {
         oled.ssd1306_command(SSD1306_DISPLAYOFF);
     }
 
-    uint8_t vol = 0;
+    uint8_t vol = 0, muted = 0;
     if (has_session[MM_SLOT_CURRENT]) {
-        vol = sessions[MM_SLOT_CURRENT].volume.is_muted ? 0 : sessions[MM_SLOT_CURRENT].volume.volume;
+        muted = sessions[MM_SLOT_CURRENT].volume.is_muted;
+        vol = muted ? 0 : sessions[MM_SLOT_CURRENT].volume.volume;
     }
+    /* The gauge eases every frame, even hidden, so it starts from the last level. */
+    uint8_t gauge_vol = has_session[MM_SLOT_CURRENT] ? sessions[MM_SLOT_CURRENT].volume.volume : 0;
+    ring_level_q8 = mm_ease_q8(ring_level_q8, mm_level_q8(gauge_vol, PIXELS_COUNT));
+    /* Gauge in the volume colours: briefly after a change, the whole time the
+     * volume is being edited, and while the current app is muted. */
+    uint8_t has_cur = connected && has_session[MM_SLOT_CURRENT];
+    uint8_t overlay = (int32_t)(vol_overlay_until - now) > 0 || (edit_mode && has_cur) || (muted && has_cur);
+    /* Muted: dim, slowly breathing (~10%..30%). */
+    uint8_t mute_k = (uint8_t)(25 + ((uint16_t)mm_wave(now, 2) * 50) / 255);
     /* Asleep without idle lighting: ring off. Otherwise render autonomously. */
     uint8_t ring_off = asleep && lighting.idle_timeout_s == 0;
 
     for (uint8_t i = 0; i < PIXELS_COUNT; i++) {
         mm_rgb_t c = {0, 0, 0};
-        if (!ring_off) c = mm_render_pixel(&lighting, vol, i, PIXELS_COUNT, now, idle || asleep);
+        if (overlay) {
+            c = mm_render_gauge(&lighting, ring_level_q8, i, PIXELS_COUNT);
+            if (muted) c = mm_scale(c, mute_k);
+        } else if (!ring_off) {
+            c = mm_render_pixel(&lighting, vol, i, PIXELS_COUNT, now, idle || asleep);
+        }
         ring.setPixelColor(mm_pixel_index(i, PIXELS_COUNT, devcfg.ring_reversed), c.r, c.g, c.b);
     }
     ring.show();
@@ -401,10 +487,13 @@ void setup() {
     Serial.begin(SERIAL_BAUD);
     pinMode(PIN_ENCODER_A, INPUT_PULLUP);
     pinMode(PIN_ENCODER_B, INPUT_PULLUP);
+    PCICR |= _BV(PCIE1);                     /* port C pin-change interrupts */
+    PCMSK1 |= _BV(PCINT9) | _BV(PCINT10);    /* A1, A2 */
     pinMode(PIN_SWITCH, INPUT_PULLUP);
 
     mm_decoder_init(&decoder);
     ring.begin();
+    ring.setBrightness(PIXELS_BRIGHTNESS);
     ring.show();
     Wire.setClock(400000); /* fast I2C, as the original, for smooth scrolling */
     oled.begin(SSD1306_SWITCHCAPVCC, OLED_ADDRESS);
@@ -415,8 +504,8 @@ void setup() {
 
 void loop() {
     poll_serial();
-    int8_t dir = read_encoder();
-    if (dir) on_turn(dir);
+    int8_t steps = read_encoder();
+    if (steps) on_turn(steps);
     poll_switch();
     draw_display();
     draw_ring();

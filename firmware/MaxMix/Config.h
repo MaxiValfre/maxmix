@@ -17,6 +17,8 @@
 
 /* VERIFY against your hardware: ring size and OLED geometry/address. */
 #define PIXELS_COUNT 8
+/* Master ring brightness 0..255 (original 1.5.x: 96). Mind the USB current. */
+#define PIXELS_BRIGHTNESS 128
 #define OLED_WIDTH 128
 #define OLED_HEIGHT 32
 #define OLED_ADDRESS 0x3C
