@@ -2,7 +2,8 @@
 #include "mm_light.h"
 
 static uint8_t lerp8(uint8_t a, uint8_t b, uint8_t t) {
-    return (uint8_t)(a + (((int16_t)b - (int16_t)a) * (int16_t)t) / 255);
+    /* int32: on AVR int is 16-bit and (b - a) * t reaches +/-65025. */
+    return (uint8_t)(a + (((int32_t)b - (int32_t)a) * (int32_t)t) / 255);
 }
 
 mm_rgb_t mm_lerp(mm_rgb_t a, mm_rgb_t b, uint8_t t) {

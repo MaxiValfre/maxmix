@@ -27,7 +27,7 @@ static mm_frame_t frame;
 static uint8_t txbuf[MM_FRAME_MAX];
 
 static mm_lighting_t lighting = {MM_LIGHT_STATIC, 5, {0, 0, 32}, {0, 128, 255}, MM_LIGHT_PULSE, 30};
-static mm_devcfg_t devcfg = {50, 5, 0, 0};
+static mm_devcfg_t devcfg = {50, 0, 0, 0}; /* sleep 0 = never */
 static mm_session_t sessions[4];
 static uint8_t has_session[4];
 static uint8_t session_current = 0, session_count = 0;
@@ -94,8 +94,17 @@ static void handle_frame(const mm_frame_t *f) {
     }
 }
 
+/* A frame's bytes arrive back-to-back; a partial frame idle for longer than
+ * this was damaged (e.g. RX overrun while drawing) and is dropped, so the
+ * decoder never sits on a bogus length swallowing the following PINGs. */
+#define RX_STALE_MS 20
+
 static void poll_serial(void) {
+    static uint32_t last_byte_ms = 0;
+    uint32_t now = millis();
+    if (decoder.n > 0 && now - last_byte_ms > RX_STALE_MS) mm_decoder_init(&decoder);
     while (Serial.available() > 0) {
+        last_byte_ms = millis();
         mm_decoder_push(&decoder, (uint8_t)Serial.read());
         while (mm_decoder_poll(&decoder, &frame)) handle_frame(&frame);
     }
@@ -120,13 +129,25 @@ static int8_t read_encoder(void) {
     return 0;
 }
 
-static uint8_t accel_step(void) {
+/* Exponential acceleration ported from the 1.5.x firmware:
+ *   speed = detents/second, divisor = max((1 - accel/100) * 400, 1)
+ *   step  = 1 + speed^2 / divisor  (reset to 1 when the direction changes).
+ * At 100% a quick spin sweeps the whole range; at 0% every detent is 1 point. */
+#define ACCEL_DIVISOR_MAX 400UL
+static uint8_t accel_step(int8_t dir) {
     static uint32_t last_turn = 0;
+    static int8_t last_dir = 0;
     uint32_t now = millis(), dt = now - last_turn;
     last_turn = now;
-    if (dt > 120 || devcfg.acceleration == 0) return 1;
-    /* Fast turns move up to 1 + accel/20 points (max 6). */
-    return (uint8_t)(1 + (devcfg.acceleration * (120 - dt)) / (120UL * 20));
+    uint8_t same_dir = dir == last_dir;
+    last_dir = dir;
+    if (!same_dir || devcfg.acceleration == 0) return 1;
+    if (dt == 0) dt = 1;
+    uint32_t speed = 1000UL / dt;
+    uint32_t divisor = ((100UL - devcfg.acceleration) * ACCEL_DIVISOR_MAX) / 100UL;
+    if (divisor < 1) divisor = 1;
+    uint32_t step = 1 + (speed * speed) / divisor;
+    return (uint8_t)(step > 100 ? 100 : step);
 }
 
 static void wake(void) {
@@ -150,7 +171,7 @@ static void on_turn(int8_t dir) {
     }
     if (!has_session[MM_SLOT_CURRENT]) return;
     mm_volume_t *v = &sessions[MM_SLOT_CURRENT].volume;
-    int16_t vol = (int16_t)v->volume + (int16_t)dir * accel_step();
+    int16_t vol = (int16_t)v->volume + (int16_t)dir * accel_step(dir);
     v->volume = (uint8_t)(vol < 0 ? 0 : (vol > 100 ? 100 : vol));
     send(mm_encode_volume_change(MM_SLOT_CURRENT, v, txbuf));
     display_dirty = 1;
@@ -185,36 +206,162 @@ static void poll_switch(void) {
 }
 
 /* ---- output ---------------------------------------------------------- */
+/*
+ * OLED presentation mirrors the original MaxMix 1.5.x firmware:
+ *   navigate: big app name (size 2, horizontal scroll if long) + selection
+ *             arrows on the edges + a volume bar with end caps below;
+ *   edit:     small app name + volume bar + big right-aligned volume number;
+ *   muted:    the bar is outlined instead of filled.
+ */
+#define CH_W1 5  /* size-1 glyph width */
+#define CH_H1 7
+#define CH_W2 10 /* size-2 glyph width */
+#define CH_H2 14
+#define SIDE_MARGIN 11 /* room for the selection arrows */
+#define ARROW_SIZE 3
+#define BAR_Y (CH_H2 + 4) /* thin bar just under the name, like 1.5.x */
+#define BAR_H 6
+#define DOT_SMALL 2
+#define DOT_BIG 4
+#define DOT_GAP 4
+#define DOTS_MAX 8
+#define SCROLL_HOLD_MS 1500UL /* pause before a long name starts scrolling */
+
+static char shown_name[MM_NAME_BYTES];
+static uint32_t name_scroll_ms = 0;
+static uint32_t last_render_ms = 0;
+static uint8_t scrolling = 0;
+
+/* Name at `size` (1 or 2) inside [x, x+area), scrolling when it does not fit. */
+static void draw_name(const char *name, uint8_t size, uint8_t x, uint8_t area) {
+    const uint8_t adv = size == 2 ? CH_W2 + 2 : CH_W1 + 1;
+    const uint8_t rowh = (size == 2 ? CH_H2 : CH_H1) + 2;
+    uint16_t textw = (uint16_t)strlen(name) * adv;
+    oled.setTextSize(size);
+    oled.setTextColor(SSD1306_WHITE);
+    if (textw > area) {
+        scrolling = 1;
+        uint16_t span = textw + adv * 3;
+        uint16_t off = 0;
+        uint32_t elapsed = millis() - name_scroll_ms;
+        if (elapsed > SCROLL_HOLD_MS)
+            off = (uint16_t)(((elapsed - SCROLL_HOLD_MS) * (adv * 3UL) / 1000UL) % span);
+        oled.setCursor((int16_t)x - (int16_t)off, 0);
+        oled.print(name);
+        oled.print(F("   "));
+        oled.print(name);
+    } else {
+        oled.setCursor(x, 0);
+        oled.print(name);
+    }
+    /* Clip: clear everything outside the name area on the name row. */
+    oled.fillRect(0, 0, x, rowh, SSD1306_BLACK);
+    oled.fillRect(x + area, 0, OLED_WIDTH - x - area, rowh, SSD1306_BLACK);
+}
+
+/* Original 1.5.x bar: | <gap> fill <gap> |, filled or outlined when muted. */
+static void draw_volbar(uint8_t vol, uint8_t muted, uint8_t x0, uint8_t x1, uint8_t y, uint8_t h) {
+    oled.drawFastVLine(x0, y, h, SSD1306_WHITE);
+    oled.drawFastVLine(x1, y, h, SSD1306_WHITE);
+    const uint8_t bx = x0 + 3, inner = (uint8_t)(x1 - 2 - bx);
+    uint8_t w = (uint8_t)(((uint16_t)vol * inner) / 100);
+    if (w > 0) {
+        if (muted) oled.drawRect(bx, y, w, h, SSD1306_WHITE);
+        else oled.fillRect(bx, y, w, h, SSD1306_WHITE);
+    }
+}
+
+static void draw_arrows(uint8_t left, uint8_t right) {
+    const uint8_t cy = CH_H2 / 2;
+    if (left)
+        oled.fillTriangle(0, cy, ARROW_SIZE, cy - ARROW_SIZE, ARROW_SIZE, cy + ARROW_SIZE, SSD1306_WHITE);
+    if (right)
+        oled.fillTriangle(OLED_WIDTH - 1, cy, OLED_WIDTH - 1 - ARROW_SIZE, cy - ARROW_SIZE,
+                          OLED_WIDTH - 1 - ARROW_SIZE, cy + ARROW_SIZE, SSD1306_WHITE);
+}
+
+/* Right-aligned size-2 number ending at right_x. Returns its left x. */
+static uint8_t draw_volnum(uint8_t vol, uint8_t right_x, uint8_t y) {
+    uint8_t digits = vol > 99 ? 3 : (vol > 9 ? 2 : 1);
+    uint8_t x = (uint8_t)(right_x - digits * CH_W2 - (digits - 1) * 2);
+    oled.setTextSize(2);
+    oled.setTextColor(SSD1306_WHITE);
+    oled.setCursor(x, y);
+    oled.print(vol);
+    return x;
+}
+
+/* Bottom dot group (like the 1.5.x mode dots): one dot per session, the
+ * current one bigger. More than DOTS_MAX sessions are scaled onto the dots. */
+static void draw_dots(uint8_t current, uint8_t count) {
+    if (count < 2) return;
+    uint8_t n = count > DOTS_MAX ? DOTS_MAX : count;
+    uint8_t sel = count > DOTS_MAX ? (uint8_t)(((uint16_t)current * n) / count) : current;
+    uint8_t width = (uint8_t)((n - 1) * (DOT_SMALL + DOT_GAP) + DOT_BIG);
+    uint8_t x = (OLED_WIDTH - width) / 2;
+    const uint8_t cy = OLED_HEIGHT - DOT_BIG / 2 - 1;
+    for (uint8_t i = 0; i < n; i++) {
+        uint8_t d = i == sel ? DOT_BIG : DOT_SMALL;
+        oled.fillRect(x, cy - d / 2, d, d, SSD1306_WHITE);
+        x += d + DOT_GAP;
+    }
+}
 
 static void draw_display(void) {
-    if (!display_dirty || !display_on) return;
+    if (!display_on) return;
+    /* A redraw blocks ~15ms on I2C; never start one while serial bytes wait. */
+    if (Serial.available() > 0) return;
+
+    /* Reset the scroll animation whenever the shown name changes. */
+    const char *name = (connected && has_session[MM_SLOT_CURRENT])
+                           ? sessions[MM_SLOT_CURRENT].name : "";
+    if (strncmp(shown_name, name, MM_NAME_BYTES) != 0) {
+        strncpy(shown_name, name, MM_NAME_BYTES);
+        shown_name[MM_NAME_BYTES - 1] = 0;
+        name_scroll_ms = millis();
+        display_dirty = 1;
+    }
+
+    /* Render on a change, or keep ~25fps while a long name scrolls. */
+    uint32_t now = millis();
+    if (!display_dirty && !(scrolling && now - last_render_ms >= 40)) return;
     display_dirty = 0;
+    last_render_ms = now;
+    scrolling = 0;
+
     oled.clearDisplay();
     oled.setTextColor(SSD1306_WHITE);
-    oled.setTextSize(1);
-    oled.setCursor(0, 0);
 
     if (!connected) {
-        oled.print(F("MaxMix v2"));
-        oled.setCursor(0, 16);
-        oled.print(F("Waiting for host..."));
+        oled.setTextSize(2);
+        oled.setCursor(SIDE_MARGIN, 0);
+        oled.print(F("MaxMix"));
+        oled.setTextSize(1);
+        oled.setCursor(SIDE_MARGIN, BAR_Y);
+        oled.print(F("Waiting for host"));
     } else if (!has_session[MM_SLOT_CURRENT]) {
-        oled.print(F("No audio apps"));
+        oled.setTextSize(2);
+        oled.setCursor(SIDE_MARGIN, 0);
+        oled.print(F("No apps"));
     } else {
         const mm_session_t *s = &sessions[MM_SLOT_CURRENT];
-        oled.print(s->name);
-        oled.setCursor(0, 12);
-        oled.print(edit_mode ? F("VOL ") : F("    "));
-        if (s->volume.is_muted) oled.print(F("MUTED"));
-        else { oled.print(s->volume.volume); oled.print('%'); }
-        oled.setCursor(OLED_WIDTH - 30, 12);
-        oled.print(session_current + 1);
-        oled.print('/');
-        oled.print(session_count);
-        /* Volume bar. */
-        uint8_t w = (uint8_t)(((uint16_t)s->volume.volume * (OLED_WIDTH - 1)) / 100);
-        oled.drawRect(0, 24, OLED_WIDTH, 8, SSD1306_WHITE);
-        if (!s->volume.is_muted) oled.fillRect(0, 24, w, 8, SSD1306_WHITE);
+        const uint8_t right = OLED_WIDTH - SIDE_MARGIN;
+        if (!edit_mode) {
+            /* Navigate (1.5.x select screen): arrows + big full-width name + thin bar. */
+            draw_name(s->name, 2, SIDE_MARGIN, right - SIDE_MARGIN);
+            draw_arrows(session_count > 1, session_count > 1);
+            draw_volbar(s->volume.volume, s->volume.is_muted, SIDE_MARGIN, right - 1, BAR_Y, BAR_H);
+        } else {
+            /* Edit (1.5.x ApplicationEditScreen): small name top-left, tall bar
+             * on the left, big volume number on the right. No arrows. */
+            const uint8_t y = CH_H1 + 4;
+            draw_name(s->name, 1, SIDE_MARGIN, right - SIDE_MARGIN);
+            uint8_t num_x = draw_volnum(s->volume.volume, right, y);
+            uint8_t bar_x1 = (uint8_t)(right - 3 * CH_W2 - 2 * 2 - 6);
+            if (bar_x1 > num_x - 4) bar_x1 = num_x - 4;
+            draw_volbar(s->volume.volume, s->volume.is_muted, SIDE_MARGIN, bar_x1, y, CH_H2);
+        }
+        draw_dots(session_current, session_count);
     }
     oled.display();
 }
@@ -259,8 +406,10 @@ void setup() {
     mm_decoder_init(&decoder);
     ring.begin();
     ring.show();
+    Wire.setClock(400000); /* fast I2C, as the original, for smooth scrolling */
     oled.begin(SSD1306_SWITCHCAPVCC, OLED_ADDRESS);
     oled.setRotation(OLED_ROTATION);
+    oled.setTextWrap(false); /* long names scroll instead of wrapping */
     last_input_ms = millis();
 }
 
