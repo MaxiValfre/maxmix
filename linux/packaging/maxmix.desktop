@@ -2,6 +2,7 @@
 Type=Application
 Name=MaxMix
 Comment=MaxMix hardware audio mixer companion
+Comment[es]=Mezclador de audio por hardware MaxMix
 Exec=maxmixd
 Icon=maxmix
 Terminal=false

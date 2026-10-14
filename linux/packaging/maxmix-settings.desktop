@@ -1,7 +1,9 @@
 [Desktop Entry]
 Type=Application
 Name=MaxMix Settings
+Name[es]=Configuración de MaxMix
 Comment=Configure MaxMix lighting and device behaviour
+Comment[es]=Configurá las luces y el comportamiento del MaxMix
 Exec=maxmix-settings
 Icon=maxmix
 Terminal=false

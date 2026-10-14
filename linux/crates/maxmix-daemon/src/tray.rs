@@ -24,6 +24,22 @@ impl MaxMixTray {
     fn connected(&self) -> bool {
         matches!(self.status.as_str(), "Connected" | "Ready")
     }
+
+    /// Spanish label for the raw connection state.
+    fn status_label(&self) -> &str {
+        status_label(&self.status)
+    }
+}
+
+fn status_label(raw: &str) -> &str {
+    match raw {
+        "Connected" | "Ready" => "Conectado",
+        "Scanning" => "Buscando el MaxMix…",
+        "Connecting" | "Handshaking" => "Conectando…",
+        "Backoff" | "Disconnected" => "Desconectado",
+        "Starting" => "Iniciando…",
+        other => other,
+    }
 }
 
 impl ksni::Tray for MaxMixTray {
@@ -50,7 +66,7 @@ impl ksni::Tray for MaxMixTray {
     }
 
     fn title(&self) -> String {
-        format!("MaxMix — {}", self.status)
+        format!("MaxMix — {}", self.status_label())
     }
 
     fn id(&self) -> String {
@@ -61,14 +77,14 @@ impl ksni::Tray for MaxMixTray {
         use ksni::menu::{MenuItem, StandardItem};
         vec![
             StandardItem {
-                label: format!("Status: {}", self.status),
+                label: format!("Estado: {}", self.status_label()),
                 enabled: false,
                 ..Default::default()
             }
             .into(),
             MenuItem::Separator,
             StandardItem {
-                label: "Settings…".into(),
+                label: "Configuración…".into(),
                 activate: Box::new(|this: &mut Self| {
                     this.controls.open_settings.store(true, Ordering::SeqCst);
                 }),
@@ -76,7 +92,7 @@ impl ksni::Tray for MaxMixTray {
             }
             .into(),
             StandardItem {
-                label: "Quit".into(),
+                label: "Salir".into(),
                 activate: Box::new(|this: &mut Self| {
                     this.controls.quit.store(true, Ordering::SeqCst);
                 }),
@@ -108,4 +124,17 @@ pub fn spawn(controls: TrayControls) -> TrayHandle {
     let handle = service.handle();
     service.spawn();
     TrayHandle { handle }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::status_label;
+
+    #[test]
+    fn states_are_shown_in_spanish() {
+        assert_eq!(status_label("Ready"), "Conectado");
+        assert_eq!(status_label("Scanning"), "Buscando el MaxMix…");
+        assert_eq!(status_label("Disconnected"), "Desconectado");
+        assert_eq!(status_label("Algo"), "Algo", "unknown states pass through");
+    }
 }
