@@ -126,7 +126,7 @@ impl Default for AppSettings {
             idle_lighting_mode: Lighting::Pulse,
             idle_timeout_s: 30,
             acceleration: 50,
-            sleep_after_s: 5,
+            sleep_after_s: 0,
             continuous_scroll: false,
             ring_reversed: false,
             autostart: false,

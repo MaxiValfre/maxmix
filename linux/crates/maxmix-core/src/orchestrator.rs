@@ -97,6 +97,8 @@ impl Orchestrator {
                 self.session_window_frames()
             }
             Event::AudioVolume { key, volume, muted } => {
+                // Always keep the mapper current, even for suppressed echoes.
+                self.mapper.update_volume(&key, volume, muted);
                 // Suppress the echo of a change we initiated from the device.
                 if self.guard.should_suppress(&key, volume, muted) {
                     return Vec::new();
@@ -112,6 +114,7 @@ impl Orchestrator {
                 let key = session.key.clone();
                 // Record the expected echo BEFORE applying, then apply to audio.
                 self.guard.expect(&key, volume.volume, volume.is_muted);
+                self.mapper.update_volume(&key, volume.volume, volume.is_muted);
                 vec![
                     Action::SetAudioVolume { key: key.clone(), volume: volume.volume },
                     Action::SetAudioMute { key, muted: volume.is_muted },
@@ -282,5 +285,38 @@ mod tests {
         assert!(actions.iter().any(|a| matches!(a, Action::Send(HostToDevice::DeviceConfig { .. }))));
         assert!(actions.iter().any(|a| matches!(a, Action::Send(HostToDevice::Lighting(_)))));
         assert!(actions.iter().any(|a| matches!(a, Action::Send(HostToDevice::SessionInfo(_)))));
+    }
+    fn sent_volume(actions: &[Action]) -> Option<u8> {
+        actions.iter().find_map(|a| match a {
+            Action::Send(HostToDevice::SessionData { slot: SessionSlot::Current, volume, .. }) => {
+                Some(volume.volume)
+            }
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn navigating_after_external_volume_change_resends_new_volume() {
+        // Regression: the session window was rebuilt from the stale snapshot
+        // volume, so turning the knob "reset" an app changed from the PC.
+        let mut o = orch();
+        o.handle(Event::AudioSnapshot(vec![sess("chrome", 100)]));
+        o.handle(Event::AudioVolume { key: "chrome".into(), volume: 30, muted: false });
+        let actions = o.handle(Event::DeviceNavigate { direction: 1 });
+        assert_eq!(sent_volume(&actions), Some(30));
+    }
+
+    #[test]
+    fn navigating_after_device_volume_change_resends_new_volume() {
+        let mut o = orch();
+        o.handle(Event::AudioSnapshot(vec![sess("chrome", 100)]));
+        o.handle(Event::DeviceVolume {
+            slot: SessionSlot::Current,
+            volume: VolumeData { id: 0, is_default: false, volume: 40, is_muted: false },
+        });
+        // The echo from the audio server is suppressed, but the state must stick.
+        o.handle(Event::AudioVolume { key: "chrome".into(), volume: 40, muted: false });
+        let actions = o.handle(Event::DeviceNavigate { direction: 1 });
+        assert_eq!(sent_volume(&actions), Some(40));
     }
 }

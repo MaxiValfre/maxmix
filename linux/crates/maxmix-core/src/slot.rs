@@ -56,6 +56,14 @@ impl SlotMapper {
             .min(self.sessions.len().saturating_sub(1));
     }
 
+    /// Record a volume/mute change for `key` so later window frames are current.
+    pub fn update_volume(&mut self, key: &str, volume: u8, muted: bool) {
+        if let Some(s) = self.sessions.iter_mut().find(|s| s.key == key) {
+            s.volume = volume.min(100);
+            s.muted = muted;
+        }
+    }
+
     #[must_use]
     pub fn len(&self) -> usize {
         self.sessions.len()
