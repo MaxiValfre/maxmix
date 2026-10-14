@@ -15,7 +15,7 @@
 #define PIN_SWITCH A3
 /* OLED on hardware I2C: SDA=A4, SCL=A5. */
 
-/* VERIFY against your hardware: ring size and OLED geometry/address. */
+/* Defaults match the original kit (verified on hardware). Change them for other builds. */
 #define PIXELS_COUNT 8
 /* Master ring brightness 0..255 (original 1.5.x: 96). Mind the USB current. */
 #define PIXELS_BRIGHTNESS 128

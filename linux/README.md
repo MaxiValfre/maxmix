@@ -11,9 +11,9 @@ that only runs while you have it open.
 
 | Part | Responsibility |
 | --- | --- |
-| Firmware (Nano) | OLED, encoder, LED ring animations, idle lighting, sleep |
+| Firmware (Nano) | OLED, encoder, LED ring animations and palette, volume ring, idle lighting, screen dim/sleep |
 | `maxmixd` | Audio sessions (PulseAudio API), session→slot mapping, volume/mute sync, tray |
-| `maxmix-settings` | Edits `~/.config/maxmix/settings.json`. The daemon reloads it automatically |
+| `maxmix-settings` | Edits `~/.config/maxmix/settings.json` with a live ring preview. The daemon reloads it automatically |
 
 The lighting runs on the device. The host sends one `LightingConfig` message
 and never streams colour frames.
@@ -23,13 +23,15 @@ Audio goes through the PulseAudio client API, so it works on PipeWire
 
 ## Measured footprint
 
-Measured on CachyOS with PipeWire 1.6.9, daemon idle and no device attached:
+Measured on CachyOS with PipeWire, device connected:
 
-| Metric | Value |
-| --- | --- |
-| `maxmixd` binary (release, stripped) | 1.4 MB |
-| Idle RSS | ~11.7 MB |
-| Threads | 6 |
+| Process | RSS | CPU |
+| --- | --- | --- |
+| `maxmixd` (always running) | ~11.7 MB | ~0.2 % of one core |
+| `maxmix-settings`, focused (ring preview at 30 fps) | ~22 MB | ~1.4 % |
+| `maxmix-settings`, in the background | ~22 MB | 0 % (preview paused) |
+
+The settings window is a separate process: closing it frees everything.
 
 ## Build
 
@@ -45,12 +47,31 @@ The binaries end up in `target/release/maxmixd` and `target/release/maxmix-setti
 
 ## Install (Arch / CachyOS)
 
+Prebuilt package: see the [release](https://github.com/MaxiValfre/maxmix/releases/tag/linux-v1.0.0)
+and the [main README](../README.md#1-install). To build the package yourself:
+
 ```bash
 cd linux/packaging
 makepkg -si
 ```
 
-The package installs both binaries, the desktop entries and a udev rule.
+The package installs both binaries, the desktop entries, the icon and a udev
+rule. The PKGBUILD builds the `linux-v$pkgver` tag with `--locked`.
+
+## Install (other distributions)
+
+Build as above, then copy the files the PKGBUILD installs:
+
+```bash
+sudo install -Dm755 target/release/maxmixd target/release/maxmix-settings -t /usr/local/bin
+sudo install -Dm644 packaging/60-maxmix.rules /usr/lib/udev/rules.d/60-maxmix.rules
+sudo install -Dm644 packaging/maxmix.desktop packaging/maxmix-settings.desktop -t /usr/share/applications
+sudo install -Dm644 packaging/icons/maxmix.svg /usr/share/icons/hicolor/scalable/apps/maxmix.svg
+sudo udevadm control --reload && sudo udevadm trigger
+```
+
+Build dependencies on Debian/Ubuntu: `libpulse-dev libudev-dev libdbus-1-dev
+libxkbcommon-dev libfontconfig-dev pkg-config`.
 
 ## Serial port access
 
@@ -93,7 +114,7 @@ Only one instance runs at a time (lock file in `$XDG_RUNTIME_DIR`).
 | `maxmix-audio` | Stable session ids, reconciliation, `PulseBackend` |
 | `maxmix-core` | Pure orchestration: slot mapping, echo guard, settings |
 | `maxmix-daemon` | `maxmixd` wiring, tray, autostart, logging |
-| `maxmix-ui` | `maxmix-settings` (Slint) |
+| `maxmix-ui` | `maxmix-settings` (Slint) and `preview.rs`, a Rust port of the firmware lighting for the live ring preview |
 
 Live check that audio enumeration works:
 `cargo run -p maxmix-audio --example list_sessions`.

@@ -1,201 +1,161 @@
 # MaxMix
 
-A Windows desktop companion for the **MaxMix** Arduino-based hardware audio
-mixer. Lets you control per-application Windows audio (volume, mute) from a
-physical knob + screen plugged into your PC over USB-Serial.
+Companion software for the [MaxMix](https://github.com/t3knomanzer/maxmix-software)
+hardware audio mixer: a knob, a small OLED screen and an LED ring that control
+the volume of each application on your PC.
 
-This is a **clean rewrite** of the original `MaxMix-Software` desktop app.
-The firmware (Embedded/) is untouched — the wire protocol is preserved
-byte-for-byte. The five well-known bugs in the original desktop are
-explicitly regression-tested in
-[`tests/MaxMix.Tests/Regression/OriginalBugRegressionTests.cs`](tests/MaxMix.Tests/Regression/OriginalBugRegressionTests.cs).
+This repository has two editions:
 
-> **Linux:** a Rust rewrite with new v2 firmware lives in [`linux/`](linux/README.md)
-> and [`firmware/`](firmware/README.md). It uses an incompatible protocol and
-> needs the v2 firmware.
+| Edition | Status | Firmware on the device | Download |
+| --- | --- | --- | --- |
+| **Linux** (Rust) | `linux-v1.0.0` | **v2 firmware** from this repo | [Release](https://github.com/MaxiValfre/maxmix/releases/tag/linux-v1.0.0) |
+| **Windows** (.NET) | `v0.1.0` | Stock 1.5.x firmware from the kit | [Release](https://github.com/MaxiValfre/maxmix/releases/tag/v0.1.0) · [docs](docs/windows.md) |
 
-## Features
+> [!IMPORTANT]
+> The two editions speak **different protocols**. The Linux edition needs the
+> v2 firmware flashed to the MaxMix, and with the v2 firmware the Windows
+> edition (and the original MaxMix app) stops working. You can always flash the
+> stock firmware back; see [Flash the firmware](#2-flash-the-v2-firmware).
 
-- Strict binary protocol codec — no desync from the original Bug #1.
-- WASAPI session enumeration with **2-second reconciliation** so apps that
-  launch AFTER MaxMix are picked up (fixes original Bug #5).
-- Per-app, per-mode RGB color profiles (Default, Ocean, Sunset, Monochrome,
-  Fire, Ice, Neon).
-- WPF system-tray UI with single-instance enforcement and Windows auto-start.
-- Structured logging to `%LOCALAPPDATA%/MaxMix/logs/maxmix-<date>.log`.
+---
 
-## Install (end users)
+## MaxMix for Linux
 
-Download the latest `MaxMixSetup.exe` from the
-[Releases](https://github.com/MaxiValfre/maxmix/releases) page and run it.
-No .NET runtime needed — the installer is fully self-contained.
+A tiny background daemon links the MaxMix to per-application audio through the
+PulseAudio API, so it works on **PipeWire** (via `pipewire-pulse`) and on plain
+PulseAudio. The lighting runs on the device itself; the PC only sends the
+configuration once.
 
-## Prerequisites (developers)
+### Features
 
-- Windows 10 or 11.
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0).
-- A MaxMix device on a CH340-based USB-Serial adapter (the firmware shipped
-  with the original kit). Baud is fixed at **76800**, 8N1.
+**On the device**
+- OLED screens modelled on the original firmware: big app name (scrolls when
+  long), selection arrows, volume bar and one dot per app.
+- Lighting modes: **Static, Pulse, Fade, Rainbow and Carousel**, driven by a
+  palette of **1 to 8 colours**, plus a separate idle mode.
+- **Volume ring**: while you change the volume the ring fills from a *low*
+  colour to a *high* colour with a smooth animation. It stays on while editing,
+  and breathes dimly while the app is muted.
+- Gestures: turn, tap, **double tap to mute**, long press to mute.
+- Encoder acceleration ported from the original firmware.
+- OLED **burn-in protection**: the screen dims after a configurable idle time.
 
-## Build
+**On the PC**
+- Every app that plays audio shows up automatically, including ones started
+  later. Voice streams from Discord and other Electron apps show their real
+  name instead of "WEBRTC VoiceEngine".
+- Volume and mute stay in sync both ways (knob ↔ desktop mixer).
+- Tray icon with the connection status.
+- Settings window with a **live preview of the LED ring**. It only animates
+  while focused.
+- Light: the daemon uses about **12 MB of RAM and 0.2 % CPU**.
 
-```powershell
-# From the repo root.
-dotnet build MaxMix.sln
+### 1. Install
+
+**Arch Linux, CachyOS, Manjaro and other Arch-based distros**
+
+Download `maxmix-1.0.0-1-x86_64.pkg.tar.zst` from the
+[release](https://github.com/MaxiValfre/maxmix/releases/tag/linux-v1.0.0) and run:
+
+```bash
+sudo pacman -U maxmix-1.0.0-1-x86_64.pkg.tar.zst
 ```
 
-The solution has 5 projects:
+It installs `maxmixd`, `maxmix-settings`, the menu entries, the icon and a udev
+rule that gives your desktop user access to the device (as `/dev/maxmix`).
 
-| Project          | Role                                                                 |
-| ---------------- | -------------------------------------------------------------------- |
-| `MaxMix.Core`    | Domain models, abstractions, settings (`net8.0`, sink-agnostic).     |
-| `MaxMix.Serial`  | Binary codec + serial transport with state machine + backoff.        |
-| `MaxMix.Audio`   | WASAPI session manager (NAudio) with reconciliation timer.           |
-| `MaxMix.App`     | WPF shell, DI composition, Serilog wiring, system tray (Windows).    |
-| `MaxMix.Tests`   | xUnit test suite — 284 tests covering every layer + regression suite. |
+Or build the package yourself:
 
-## Build the installer
-
-Requires [Inno Setup 6](https://jrsoftware.org/isinfo.php) installed and
-`ISCC.exe` on PATH (or at the default `Program Files` location).
-
-```powershell
-.\installer\build-installer.ps1
+```bash
+git clone https://github.com/MaxiValfre/maxmix.git
+cd maxmix/linux/packaging
+makepkg -si
 ```
 
-This publishes a self-contained win-x64 build and packages it into
-`installer/output/MaxMixSetup.exe`.
+**Other distributions** — build from source; see [`linux/README.md`](linux/README.md).
 
-## Run tests
+### 2. Flash the v2 firmware
 
-```powershell
-dotnet test
+The release includes a precompiled `maxmix-firmware-v2.hex` built for the
+original kit (Arduino Nano, 8-LED ring, 128×32 SSD1306 OLED at `0x3C`). Different
+hardware? Edit [`firmware/MaxMix/Config.h`](firmware/MaxMix/Config.h) and build
+it yourself (see [`firmware/README.md`](firmware/README.md)).
+
+You need `avrdude` (`sudo pacman -S avrdude` on Arch). Quit `maxmixd` first so the
+serial port is free.
+
+```bash
+# Optional but recommended: back up the stock firmware first.
+avrdude -p m328p -c arduino -P /dev/ttyUSB0 -b 115200 -U flash:r:maxmix-stock.hex:i
+
+# Flash the v2 firmware.
+avrdude -p m328p -c arduino -P /dev/ttyUSB0 -b 115200 -D -U flash:w:maxmix-firmware-v2.hex:i
 ```
 
-Expected: **284 tests, 0 failures**. Tests are pure unit/integration tests
-backed by in-memory fakes — no real serial port or audio device is required.
+If avrdude cannot sync (`not in sync` / `programmer is not responding`), your
+Nano has the **old bootloader**: use `-b 57600` instead of `-b 115200`.
 
-## Run the app
+To go back to the stock firmware, flash your backup the same way:
+`-U flash:w:maxmix-stock.hex:i`.
 
-```powershell
-dotnet run --project src/MaxMix.App
-```
+### 3. Use it
 
-Or build and launch the produced executable:
+Start **MaxMix** from the application menu (or run `maxmixd`). The tray icon
+turns coral when the device is connected. Open **MaxMix Settings** from the
+tray menu or the application menu.
 
-```powershell
-dotnet build -c Release
-src\MaxMix.App\bin\Release\net8.0-windows\MaxMix.exe
-```
+| On the knob | Action |
+| --- | --- |
+| Turn | Switch between apps, or change the volume in edit mode |
+| Tap | Toggle between *navigate* and *edit volume* |
+| Double tap | Mute / unmute the current app |
+| Long press | Mute / unmute the current app |
 
-The app opens a window plus a system-tray icon. Closing the window minimises
-to the tray; quit via the tray menu or by sending Ctrl+C if you ran it from
-a console.
+The settings window has three tabs:
 
-## Connecting the device
+- **Luces / Lighting** — mode, speed, the colour palette (up to 8 colours),
+  idle mode and idle timeout.
+- **Volumen / Volume** — the low and high colours of the volume ring.
+- **Dispositivo / Device** — knob acceleration, screen dim and off timeouts,
+  continuous scrolling between apps, ring direction and start at login.
 
-1. Plug the MaxMix hardware into a USB port. Windows assigns a COM port
-   (`Device Manager → Ports (COM & LPT)`).
-2. Launch MaxMix. The app **scans available COM ports** and prefers the one
-   whose driver matches CH340 (the chip used by the official MaxMix kit).
-3. Connection state surfaces in the main window header:
-   - `Disconnected`, `Scanning`, `Connecting`, `Handshaking` → not yet ready
-   - `Ready` → live; turn the knob and you should see Windows volume react
-   - `Backoff` → recently failed, waiting before retry
+Changes apply to the device as soon as you press **Save**.
 
-If no MaxMix is found, the transport keeps retrying with **exponential
-backoff** (500ms → 1s → 2s → … capped at 30s).
+### Troubleshooting
 
-## Configuration
+| Symptom | Fix |
+| --- | --- |
+| The screen says **Waiting for host** | `maxmixd` is not running or cannot open the port. Start it and check the tray icon. |
+| `open failed: Permission denied` in the log | The udev rule is missing. Reinstall the package, or add yourself to `uucp` (Arch) / `dialout` (Debian) and log in again. |
+| An app is missing | Linux only lists apps while they have an audio stream open. Play something in it. |
+| Debug logs | `MAXMIX_LOG=debug maxmixd`; log files live in `~/.local/state/maxmix/`. |
 
-Settings are persisted as JSON at:
+Settings are stored in `~/.config/maxmix/settings.json`.
 
-```
-%LOCALAPPDATA%\MaxMix\settings.json
-```
+---
 
-The file is created on first launch with conservative defaults. Open the
-**Settings** window from the tray menu to edit:
+## MaxMix for Windows
 
-- General: auto-start with Windows, start minimised, close-to-tray, knob
-  acceleration, sleep timeout.
-- Device: last-connected COM port (manual override).
-- Color profile: per-mode RGB selection (presets + RGB sliders).
+The Windows edition (`v0.1.0`) is a .NET 8 rewrite of the original desktop app.
+It keeps the **stock 1.5.x firmware** and its protocol, and fixes five bugs of
+the original app. Download `MaxMixSetup.exe` from the
+[v0.1.0 release](https://github.com/MaxiValfre/maxmix/releases/tag/v0.1.0). Build
+instructions, configuration and architecture are in
+[`docs/windows.md`](docs/windows.md).
 
-The schema is versioned. Migrations run automatically when the file's
-`SchemaVersion` is older than the current code's.
+## Repository layout
 
-If the file gets corrupted, MaxMix renames it to `settings.json.bak` and
-writes a fresh defaults file (the corrupted state is logged).
+| Path | Contents |
+| --- | --- |
+| [`linux/`](linux/README.md) | Rust workspace: daemon, settings window, protocol, packaging |
+| [`firmware/`](firmware/README.md) | v2 firmware for the Arduino Nano, with host tests |
+| `src/`, `tests/`, `installer/` | Windows edition ([docs](docs/windows.md)) |
 
-## Logs
+## Credits and license
 
-Rolling daily file at:
+MaxMix hardware, original firmware and the "M" logo by
+[t3knomanzer](https://github.com/t3knomanzer/maxmix-software). The v2 firmware
+OLED layout and encoder acceleration follow the original 1.5.x firmware.
 
-```
-%LOCALAPPDATA%\MaxMix\logs\maxmix-YYYYMMDD.log
-```
-
-The console (when run from a terminal) shows Information+ messages; the
-file captures Debug+ for post-mortem analysis. 14 days of history are
-retained.
-
-## Project layout
-
-```
-MaxMix/
-├── src/
-│   ├── MaxMix.Core/           # Pure abstractions & domain types
-│   │   ├── Abstractions/      #   IProtocolCodec, ISerialConnection, ...
-│   │   ├── Models/            #   Command, VolumeData, SessionData, ...
-│   │   ├── Events/            #   SessionAdded, VolumeChanged, ...
-│   │   ├── Protocol/          #   IProtocolCodec contract
-│   │   └── Settings/          #   AppSettings, ColorPresets, JsonSettingsService
-│   │
-│   ├── MaxMix.Serial/         # Wire format + transport
-│   │   ├── BinaryProtocolCodec.cs
-│   │   ├── SerialDeviceService.cs
-│   │   ├── SystemSerialPortAdapter.cs
-│   │   └── ConnectionStateMachine.cs
-│   │
-│   ├── MaxMix.Audio/          # WASAPI bridge
-│   │   ├── WasapiSessionManager.cs
-│   │   ├── Sessions/          #   SessionRegistry, AudioSession, RawAudioSession
-│   │   └── Wasapi/            #   IAudioEnumerator + NAudio impl
-│   │
-│   └── MaxMix.App/            # WPF shell + composition root
-│       ├── Orchestration/     #   StateOrchestrator (the glue)
-│       ├── ViewModels/        #   ShellViewModel, SettingsViewModel
-│       ├── Views/             #   MainWindow.xaml, SettingsWindow.xaml
-│       ├── Services/          #   AutoStart, SingleInstance, SystemTray
-│       └── Composition/       #   DI registration
-│
-└── tests/
-    └── MaxMix.Tests/
-        ├── Protocol/          # Codec + RGB encoding tests
-        ├── Serial/            # Transport + connection state machine
-        ├── Audio/             # Session registry, identity, manager
-        ├── Orchestration/     # State sync, mode cycling, slot mapping
-        ├── Settings/          # JSON persistence, presets, mapper
-        ├── Logging/           # Verifies ILogger emits at lifecycle edges
-        └── Regression/        # Original 5 bugs — explicit lock-in tests
-```
-
-## Original-bug regression tests
-
-The five confirmed bugs in the original desktop software are each pinned by
-a self-contained test in `tests/MaxMix.Tests/Regression/OriginalBugRegressionTests.cs`:
-
-| Bug | Description                                                                       | Test method                                                  |
-| --- | --------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| 1   | VOLUME command sent 32-byte SessionData payload (should be 2-byte VolumeData).    | `Bug1_VolumeChangeCommand_SendsExactly2BytePayload`           |
-| 2   | `(int)mode + 1 % MAX` operator-precedence bug — mode never wraps.                 | `Bug2_SessionNavigation_CorrectModuloWraparound`              |
-| 3   | 30-byte name field not null-terminated; firmware's `strlen` walked off the end.   | `Bug3_SessionName_AlwaysNullTerminated`                       |
-| 4   | `Color` constructor typo (`b = g`); blue and green were the same channel.         | `Bug4_RgbEncoding_BytesInCorrectOrder`                        |
-| 5   | Apps launched after startup were never detected.                                  | `Bug5_LateSessionDetection_ReconciliationCatchesNewApps`      |
-
-If any of these fail, that specific class of bug has regressed.
-
-## License
-
-See [LICENSE](LICENSE) (matches the original repo).
+Licensed under the Apache License 2.0, like the original project. See
+[LICENSE](LICENSE).
