@@ -120,6 +120,10 @@ pub struct AppSettings {
     pub acceleration: u8,
     /// Seconds before the device sleeps (0 = never).
     pub sleep_after_s: u8,
+    /// Seconds without input before the OLED dims to protect it from burn-in
+    /// (0 = never). Older settings files get the default.
+    #[serde(default = "default_dim_after")]
+    pub display_dim_after_s: u8,
     pub continuous_scroll: bool,
     pub ring_reversed: bool,
     pub autostart: bool,
@@ -142,6 +146,7 @@ impl Default for AppSettings {
             idle_timeout_s: 30,
             acceleration: 50,
             sleep_after_s: 0,
+            display_dim_after_s: default_dim_after(),
             continuous_scroll: false,
             ring_reversed: false,
             autostart: false,
@@ -149,6 +154,10 @@ impl Default for AppSettings {
             last_port: None,
         }
     }
+}
+
+fn default_dim_after() -> u8 {
+    30
 }
 
 /// Volume gauge defaults: a classic green -> red level meter.
@@ -281,6 +290,14 @@ mod tests {
         save(&path, &old).unwrap();
         let loaded = load_or_init(&path);
         assert_eq!(loaded.schema_version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn settings_without_dim_timeout_load_with_default() {
+        let mut v = serde_json::to_value(AppSettings::default()).unwrap();
+        v.as_object_mut().unwrap().remove("display_dim_after_s");
+        let s: AppSettings = serde_json::from_value(v).unwrap();
+        assert_eq!(s.display_dim_after_s, 30);
     }
 
     #[test]

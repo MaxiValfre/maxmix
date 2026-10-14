@@ -66,6 +66,7 @@ static void test_decode_host_frames(void) {
     mm_devcfg_t dc;
     CHECK(DECODE(V_DEVICE_CONFIG, &f) && mm_parse_devcfg(&f, &dc));
     CHECK(dc.acceleration == 60 && dc.sleep_after_s == 10 && dc.continuous_scroll && dc.ring_reversed);
+    CHECK(dc.dim_after_s == 20);
 }
 
 static void test_encode_device_frames(void) {

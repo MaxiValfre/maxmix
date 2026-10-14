@@ -28,7 +28,8 @@ static uint8_t txbuf[MM_FRAME_MAX];
 
 static mm_lighting_t lighting = {MM_LIGHT_STATIC, 5, {0, 0, 32}, {0, 128, 255}, MM_LIGHT_PULSE, 30,
                                   {0, 255, 64}, {255, 0, 0}};
-static mm_devcfg_t devcfg = {50, 0, 0, 0}; /* sleep 0 = never */
+static mm_devcfg_t devcfg = {50, 0, 0, 0, 30}; /* sleep 0 = never, dim after 30s */
+static uint8_t display_dimmed = 0;
 static mm_session_t sessions[4];
 static uint8_t has_session[4];
 static uint8_t session_current = 0, session_count = 0;
@@ -192,6 +193,10 @@ static void wake(void) {
         display_on = 1;
         oled.ssd1306_command(SSD1306_DISPLAYON);
         display_dirty = 1;
+    }
+    if (display_dimmed) {
+        display_dimmed = 0;
+        oled.dim(false);
     }
 }
 
@@ -449,6 +454,12 @@ static void draw_ring(void) {
     if (asleep && display_on) {
         display_on = 0;
         oled.ssd1306_command(SSD1306_DISPLAYOFF);
+    }
+    /* Anti burn-in: dim (not off) after dim_after_s without input. */
+    if (display_on && !display_dimmed && devcfg.dim_after_s &&
+        inactive >= (uint32_t)devcfg.dim_after_s * 1000UL) {
+        display_dimmed = 1;
+        oled.dim(true);
     }
 
     uint8_t vol = 0, muted = 0;

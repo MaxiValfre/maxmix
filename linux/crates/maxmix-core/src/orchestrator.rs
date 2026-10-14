@@ -62,12 +62,7 @@ impl Orchestrator {
     #[must_use]
     pub fn on_connected(&self) -> Vec<Action> {
         let mut actions = vec![
-            Action::Send(HostToDevice::DeviceConfig {
-                acceleration: self.settings.acceleration,
-                sleep_after_s: self.settings.sleep_after_s,
-                continuous_scroll: self.settings.continuous_scroll,
-                ring_reversed: self.settings.ring_reversed,
-            }),
+            Action::Send(self.device_config()),
             Action::Send(HostToDevice::Lighting(self.settings.lighting_config())),
         ];
         actions.extend(self.session_window_frames());
@@ -79,14 +74,19 @@ impl Orchestrator {
         self.settings = settings;
         self.mapper.continuous_scroll = self.settings.continuous_scroll;
         vec![
-            Action::Send(HostToDevice::DeviceConfig {
-                acceleration: self.settings.acceleration,
-                sleep_after_s: self.settings.sleep_after_s,
-                continuous_scroll: self.settings.continuous_scroll,
-                ring_reversed: self.settings.ring_reversed,
-            }),
+            Action::Send(self.device_config()),
             Action::Send(HostToDevice::Lighting(self.settings.lighting_config())),
         ]
+    }
+
+    fn device_config(&self) -> HostToDevice {
+        HostToDevice::DeviceConfig {
+            acceleration: self.settings.acceleration,
+            sleep_after_s: self.settings.sleep_after_s,
+            continuous_scroll: self.settings.continuous_scroll,
+            ring_reversed: self.settings.ring_reversed,
+            dim_after_s: self.settings.display_dim_after_s,
+        }
     }
 
     /// Handle one inbound event.

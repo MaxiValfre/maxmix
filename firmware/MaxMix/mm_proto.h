@@ -91,6 +91,7 @@ typedef struct {
     uint8_t sleep_after_s; /* 0 = never */
     uint8_t continuous_scroll;
     uint8_t ring_reversed;
+    uint8_t dim_after_s; /* OLED dims after this idle time (anti burn-in), 0 = never */
 } mm_devcfg_t;
 
 typedef struct {

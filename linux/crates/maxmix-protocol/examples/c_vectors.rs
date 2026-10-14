@@ -63,6 +63,7 @@ fn main() {
             sleep_after_s: 10,
             continuous_scroll: true,
             ring_reversed: true,
+            dim_after_s: 20,
         }
         .encode(),
     );

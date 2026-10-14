@@ -172,6 +172,8 @@ pub enum HostToDevice {
         sleep_after_s: u8,
         continuous_scroll: bool,
         ring_reversed: bool,
+        /// Seconds without input before the OLED dims (anti burn-in, 0 = never).
+        dim_after_s: u8,
     },
 }
 
@@ -224,9 +226,10 @@ impl HostToDevice {
                 sleep_after_s,
                 continuous_scroll,
                 ring_reversed,
+                dim_after_s,
             } => {
                 let flags = (u8::from(*continuous_scroll)) | (u8::from(*ring_reversed) << 1);
-                encode_frame(T_DEVICE_CONFIG, &[*acceleration, *sleep_after_s, flags])
+                encode_frame(T_DEVICE_CONFIG, &[*acceleration, *sleep_after_s, flags, *dim_after_s])
             }
         }
     }
@@ -389,12 +392,13 @@ pub fn decode_host_to_device(frame: &RawFrame) -> Result<HostToDevice, DecodeErr
             }))
         }
         T_DEVICE_CONFIG => {
-            need(3)?;
+            need(4)?;
             Ok(HostToDevice::DeviceConfig {
                 acceleration: p[0],
                 sleep_after_s: p[1],
                 continuous_scroll: p[2] & 0x01 != 0,
                 ring_reversed: p[2] & 0x02 != 0,
+                dim_after_s: p[3],
             })
         }
         other => Err(DecodeError::UnknownType(other)),
@@ -520,11 +524,13 @@ mod tests {
             sleep_after_s: 5,
             continuous_scroll: true,
             ring_reversed: true,
+            dim_after_s: 45,
         };
         let frame = one_frame(&msg.encode());
         assert_eq!(decode_host_to_device(&frame).unwrap(), msg);
         // flags byte: bit0 scroll, bit1 ring -> 0b11 = 3.
         assert_eq!(frame.payload[2], 0b11);
+        assert_eq!(frame.payload[3], 45, "dim_after_s is the 4th byte");
     }
 
     #[test]

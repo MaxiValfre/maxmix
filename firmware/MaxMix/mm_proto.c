@@ -140,11 +140,12 @@ uint8_t mm_parse_lighting(const mm_frame_t *f, mm_lighting_t *l) {
 }
 
 uint8_t mm_parse_devcfg(const mm_frame_t *f, mm_devcfg_t *c) {
-    EXPECT(f, MM_T_DEVICE_CONFIG, 3);
+    EXPECT(f, MM_T_DEVICE_CONFIG, 4);
     c->acceleration = f->payload[0];
     c->sleep_after_s = f->payload[1];
     c->continuous_scroll = (f->payload[2] & 0x01) ? 1 : 0;
     c->ring_reversed = (f->payload[2] & 0x02) ? 1 : 0;
+    c->dim_after_s = f->payload[3];
     return 1;
 }
 
