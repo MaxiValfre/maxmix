@@ -12,7 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 maxmix-core = { path = "../maxmix-core" }
-slint = { version = "1", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-software"] }
+slint = { version = "1", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-software", "unstable-winit-030"] }
 
 [lints.rust]
 unsafe_code = "deny"  # slint! macro output needs a local allow

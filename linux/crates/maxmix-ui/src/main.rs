@@ -14,12 +14,15 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use maxmix_core::{default_settings_path, load_or_init, save, AppSettings, Color, Lighting};
+use slint::winit_030::WinitWindowAccessor;
 use slint::{Model, VecModel};
 
 use preview::{PreviewConfig, PIXELS};
 
 slint::slint! {
     import { Button, CheckBox, ComboBox, Slider, SpinBox, TabWidget, Palette } from "std-widgets.slint";
+
+    export struct Rgbf { r: float, g: float, b: float }
 
     export global Fmt {
         pure callback hex(float, float, float) -> string;
@@ -128,12 +131,7 @@ slint::slint! {
         preferred-width: 500px;
         min-width: 460px;
 
-        in-out property <float> min-r;
-        in-out property <float> min-g;
-        in-out property <float> min-b;
-        in-out property <float> max-r;
-        in-out property <float> max-g;
-        in-out property <float> max-b;
+        in-out property <[Rgbf]> colors;
         in-out property <float> vmin-r;
         in-out property <float> vmin-g;
         in-out property <float> vmin-b;
@@ -158,6 +156,8 @@ slint::slint! {
         callback save();
         callback reset-defaults();
         callback preview-volume-moved();
+        callback add-color();
+        callback remove-color(int);
 
         property <[string]> modes: ["Fijo", "Pulso", "Fundido", "Arcoíris", "Carrusel"];
 
@@ -196,8 +196,23 @@ slint::slint! {
                         Row { label: "Velocidad";
                             Slider { minimum: 1; maximum: 10; step: 1; value <=> root.lighting-speed; }
                             Text { text: Math.round(root.lighting-speed); width: 24px; vertical-alignment: center; color: Palette.foreground; } }
-                        ColorRow { label: "Color mínimo"; r <=> root.min-r; g <=> root.min-g; b <=> root.min-b; }
-                        ColorRow { label: "Color máximo"; r <=> root.max-r; g <=> root.max-g; b <=> root.max-b; }
+                        for c[i] in root.colors: HorizontalLayout {
+                            spacing: 8px;
+                            ColorRow { label: "Color " + (i + 1); r <=> c.r; g <=> c.g; b <=> c.b; }
+                            Button {
+                                text: "✕"; width: 36px;
+                                enabled: root.colors.length > 1;
+                                clicked => { root.remove-color(i); }
+                            }
+                        }
+                        Row { label: "";
+                            Button {
+                                text: root.colors.length < 8 ? "＋ Agregar color" : "Máximo 8 colores";
+                                enabled: root.colors.length < 8;
+                                clicked => { root.add-color(); }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
                         Row { label: "Modo en reposo";
                             ComboBox { model: root.modes; current-index <=> root.idle-mode; } }
                         Row { label: "Reposo tras (s, 0 = nunca)";
@@ -246,8 +261,8 @@ slint::slint! {
 /// Plain snapshot of the form fields, decoupled from Slint so it is testable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Form {
-    color_min: String,
-    color_max: String,
+    /// Lighting palette as #RRGGBB, 1..=8 entries.
+    colors: Vec<String>,
     volume_min: String,
     volume_max: String,
     lighting_mode: i32,
@@ -269,8 +284,7 @@ fn clamp_u8(v: i32, lo: u8, hi: u8) -> u8 {
 impl Form {
     fn from_settings(s: &AppSettings) -> Self {
         Self {
-            color_min: s.color_min.to_hex(),
-            color_max: s.color_max.to_hex(),
+            colors: s.palette().iter().map(|c| c.to_hex()).collect(),
             volume_min: s.volume_color_min.to_hex(),
             volume_max: s.volume_color_max.to_hex(),
             lighting_mode: s.lighting_mode.index() as i32,
@@ -292,8 +306,13 @@ impl Form {
             Color::from_hex(hex).ok_or_else(|| format!("{field} inválido '{hex}': usá #RRGGBB"))
         };
         let mut s = base.clone();
-        s.color_min = parse(&self.color_min, "Color mínimo")?;
-        s.color_max = parse(&self.color_max, "Color máximo")?;
+        let palette = self
+            .colors
+            .iter()
+            .enumerate()
+            .map(|(i, hex)| parse(hex, &format!("Color {}", i + 1)))
+            .collect::<Result<Vec<_>, _>>()?;
+        s.set_palette(&palette);
         s.volume_color_min = parse(&self.volume_min, "Color de volumen bajo")?;
         s.volume_color_max = parse(&self.volume_max, "Color de volumen alto")?;
         s.lighting_mode = Lighting::from_index(self.lighting_mode.max(0) as usize);
@@ -324,15 +343,21 @@ fn rgb_to_hex(r: f32, g: f32, b: f32) -> String {
     rgb_to_color(r, g, b).to_hex()
 }
 
+fn hex_to_rgbf(hex: &str) -> Rgbf {
+    let (r, g, b) = hex_to_rgb(hex);
+    Rgbf { r, g, b }
+}
+
+fn set_colors(ui: &SettingsWindow, colors: Vec<Rgbf>) {
+    ui.set_colors(Rc::new(VecModel::from(colors)).into());
+}
+
+fn get_colors(ui: &SettingsWindow) -> Vec<Rgbf> {
+    ui.get_colors().iter().collect()
+}
+
 fn write_form(ui: &SettingsWindow, f: &Form) {
-    let (r, g, b) = hex_to_rgb(&f.color_min);
-    ui.set_min_r(r);
-    ui.set_min_g(g);
-    ui.set_min_b(b);
-    let (r, g, b) = hex_to_rgb(&f.color_max);
-    ui.set_max_r(r);
-    ui.set_max_g(g);
-    ui.set_max_b(b);
+    set_colors(ui, f.colors.iter().map(|h| hex_to_rgbf(h)).collect());
     let (r, g, b) = hex_to_rgb(&f.volume_min);
     ui.set_vmin_r(r);
     ui.set_vmin_g(g);
@@ -355,8 +380,7 @@ fn write_form(ui: &SettingsWindow, f: &Form) {
 
 fn read_form(ui: &SettingsWindow) -> Form {
     Form {
-        color_min: rgb_to_hex(ui.get_min_r(), ui.get_min_g(), ui.get_min_b()),
-        color_max: rgb_to_hex(ui.get_max_r(), ui.get_max_g(), ui.get_max_b()),
+        colors: get_colors(ui).iter().map(|c| rgb_to_hex(c.r, c.g, c.b)).collect(),
         volume_min: rgb_to_hex(ui.get_vmin_r(), ui.get_vmin_g(), ui.get_vmin_b()),
         volume_max: rgb_to_hex(ui.get_vmax_r(), ui.get_vmax_g(), ui.get_vmax_b()),
         lighting_mode: ui.get_lighting_mode(),
@@ -377,8 +401,7 @@ fn preview_config(ui: &SettingsWindow) -> PreviewConfig {
     PreviewConfig {
         mode: Lighting::from_index(ui.get_lighting_mode().max(0) as usize),
         speed: ui.get_lighting_speed().round().clamp(1.0, 10.0) as u8,
-        color_min: rgb_to_color(ui.get_min_r(), ui.get_min_g(), ui.get_min_b()),
-        color_max: rgb_to_color(ui.get_max_r(), ui.get_max_g(), ui.get_max_b()),
+        colors: get_colors(ui).iter().map(|c| rgb_to_color(c.r, c.g, c.b)).collect(),
         volume_min: rgb_to_color(ui.get_vmin_r(), ui.get_vmin_g(), ui.get_vmin_b()),
         volume_max: rgb_to_color(ui.get_vmax_r(), ui.get_vmax_g(), ui.get_vmax_b()),
     }
@@ -393,9 +416,22 @@ fn led_color(c: Color) -> slint::Color {
     }
 }
 
+/// Preview frame time while the window is in the foreground (~30 fps).
+const PREVIEW_FRAME: Duration = Duration::from_millis(33);
+/// Focus polling interval while the preview is paused in the background.
+const BACKGROUND_POLL: Duration = Duration::from_millis(250);
+
+/// Animate only when the window is visible, not minimised and focused. An
+/// unknown focus state (non-winit backend) keeps animating.
+fn preview_should_animate(focused: Option<bool>, minimized: bool, visible: bool) -> bool {
+    visible && !minimized && focused.unwrap_or(true)
+}
+
 /// How long the gauge stays up after moving the test slider (device: 1.5s).
 const GAUGE_HOLD: Duration = Duration::from_millis(1500);
 const VOLUME_TAB: i32 = 1;
+/// Palette size limit (firmware `MM_MAX_PALETTE`).
+const MAX_COLORS: usize = 8;
 
 fn main() -> Result<(), slint::PlatformError> {
     // Wayland compositors pick the window icon from the desktop entry whose
@@ -419,10 +455,25 @@ fn main() -> Result<(), slint::PlatformError> {
     let g = gauge_until.clone();
     ui.on_preview_volume_moved(move || g.set(Instant::now() + GAUGE_HOLD));
 
-    let timer = slint::Timer::default();
+    // The preview only animates while the window is focused and on screen; in
+    // the background the timer just polls for focus a few times per second.
+    let timer = Rc::new(slint::Timer::default());
     let weak = ui.as_weak();
-    timer.start(slint::TimerMode::Repeated, Duration::from_millis(33), move || {
+    let weak_timer = Rc::downgrade(&timer);
+    timer.start(slint::TimerMode::Repeated, PREVIEW_FRAME, move || {
         let Some(ui) = weak.upgrade() else { return };
+        let window = ui.window();
+        let focused = window.with_winit_window(|w| w.has_focus());
+        let animate = preview_should_animate(focused, window.is_minimized(), window.is_visible());
+        if let Some(t) = weak_timer.upgrade() {
+            let wanted = if animate { PREVIEW_FRAME } else { BACKGROUND_POLL };
+            if t.interval() != wanted {
+                t.set_interval(wanted);
+            }
+        }
+        if !animate {
+            return;
+        }
         let cfg = preview_config(&ui);
         let volume = ui.get_preview_volume().round().clamp(0.0, 100.0) as u8;
         let now_ms = started.elapsed().as_millis() as u32;
@@ -437,6 +488,28 @@ fn main() -> Result<(), slint::PlatformError> {
             if leds.row_data(i as usize) != Some(led_color(c)) {
                 leds.set_row_data(i as usize, led_color(c));
             }
+        }
+    });
+
+    // ---- palette editing ------------------------------------------------
+    let weak = ui.as_weak();
+    ui.on_add_color(move || {
+        let Some(ui) = weak.upgrade() else { return };
+        let mut colors = get_colors(&ui);
+        if colors.len() < MAX_COLORS {
+            // Start from the last colour so the new stop is easy to tweak.
+            let last = colors.last().cloned().unwrap_or(Rgbf { r: 255.0, g: 255.0, b: 255.0 });
+            colors.push(last);
+            set_colors(&ui, colors);
+        }
+    });
+    let weak = ui.as_weak();
+    ui.on_remove_color(move |i| {
+        let Some(ui) = weak.upgrade() else { return };
+        let mut colors = get_colors(&ui);
+        if colors.len() > 1 && (i as usize) < colors.len() {
+            colors.remove(i as usize);
+            set_colors(&ui, colors);
         }
     });
 
@@ -481,9 +554,9 @@ mod tests {
     fn invalid_color_is_rejected_with_field_name() {
         let s = AppSettings::default();
         let mut f = Form::from_settings(&s);
-        f.color_max = "#ZZZZZZ".into();
+        f.colors[1] = "#ZZZZZZ".into();
         let err = f.apply_to(&s).unwrap_err();
-        assert!(err.contains("Color máximo"), "{err}");
+        assert!(err.contains("Color 2"), "{err}");
     }
 
     #[test]
@@ -497,6 +570,17 @@ mod tests {
         assert_eq!(out.lighting_speed, 10);
         assert_eq!(out.acceleration, 0);
         assert_eq!(out.display_dim_after_s, 255);
+    }
+
+    #[test]
+    fn palette_round_trips_through_the_form() {
+        let mut s = AppSettings::default();
+        s.set_palette(&[Color::new(255, 0, 0), Color::new(0, 255, 0), Color::new(0, 0, 255)]);
+        let f = Form::from_settings(&s);
+        assert_eq!(f.colors, vec!["#FF0000", "#00FF00", "#0000FF"]);
+        let out = f.apply_to(&AppSettings::default()).unwrap();
+        assert_eq!(out.palette(), s.palette());
+        assert_eq!((out.color_min, out.color_max), (Color::new(255, 0, 0), Color::new(0, 0, 255)));
     }
 
     #[test]
@@ -520,6 +604,15 @@ mod tests {
         s.last_port = Some("/dev/ttyUSB0".into());
         let out = Form::from_settings(&s).apply_to(&s).unwrap();
         assert_eq!(out.last_port.as_deref(), Some("/dev/ttyUSB0"));
+    }
+
+    #[test]
+    fn preview_pauses_in_the_background() {
+        assert!(preview_should_animate(Some(true), false, true), "focused: animate");
+        assert!(!preview_should_animate(Some(false), false, true), "unfocused: pause");
+        assert!(!preview_should_animate(Some(true), true, true), "minimised: pause");
+        assert!(!preview_should_animate(Some(true), false, false), "hidden: pause");
+        assert!(preview_should_animate(None, false, true), "unknown focus: animate");
     }
 
     #[test]

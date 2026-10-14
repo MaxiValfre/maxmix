@@ -10,12 +10,12 @@ use maxmix_core::{Color, Lighting};
 pub const PIXELS: u8 = 8;
 
 /// Everything the renderer needs, taken from the form.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct PreviewConfig {
     pub mode: Lighting,
     pub speed: u8,
-    pub color_min: Color,
-    pub color_max: Color,
+    /// Palette, 1..=8 colours.
+    pub colors: Vec<Color>,
     pub volume_min: Color,
     pub volume_max: Color,
 }
@@ -65,6 +65,41 @@ pub fn hue(h: u8) -> Color {
     }
 }
 
+fn palette_n(cfg: &PreviewConfig) -> usize {
+    cfg.colors.len().clamp(1, 8)
+}
+
+fn color_at(cfg: &PreviewConfig, i: usize) -> Color {
+    cfg.colors.get(i).copied().unwrap_or(Color::new(0, 0, 0))
+}
+
+/// Palette as a gradient (firmware `mm_palette_linear`).
+#[must_use]
+pub fn palette_linear(cfg: &PreviewConfig, t: u8) -> Color {
+    let n = palette_n(cfg);
+    if n == 1 {
+        return color_at(cfg, 0);
+    }
+    let pos = u16::from(t) * (n as u16 - 1);
+    let i = usize::from(pos / 255);
+    if i >= n - 1 {
+        return color_at(cfg, n - 1);
+    }
+    lerp(color_at(cfg, i), color_at(cfg, i + 1), (pos % 255) as u8)
+}
+
+/// Palette as a loop (firmware `mm_palette_cyclic`).
+#[must_use]
+pub fn palette_cyclic(cfg: &PreviewConfig, p: u8) -> Color {
+    let n = palette_n(cfg);
+    if n == 1 {
+        return color_at(cfg, 0);
+    }
+    let pos = u16::from(p) * n as u16;
+    let i = usize::from(pos >> 8);
+    lerp(color_at(cfg, i), color_at(cfg, (i + 1) % n), (pos & 0xFF) as u8)
+}
+
 fn rotation(now_ms: u32, speed: u8) -> u8 {
     let period = period(speed);
     ((now_ms % period) * 256 / period) as u8
@@ -81,8 +116,7 @@ pub fn render_pixel(cfg: &PreviewConfig, volume: u8, i: u8, now_ms: u32) -> Colo
             if cfg.mode == Lighting::Rainbow {
                 return hue(p);
             }
-            let t = if p < 128 { p * 2 } else { (255 - p) * 2 + 1 };
-            lerp(cfg.color_min, cfg.color_max, t)
+            palette_cyclic(cfg, p)
         }
         Lighting::Static | Lighting::Pulse | Lighting::Fade => {
             let lit = ((u16::from(volume.min(100)) * u16::from(PIXELS) + 50) / 100) as u8;
@@ -90,12 +124,12 @@ pub fn render_pixel(cfg: &PreviewConfig, volume: u8, i: u8, now_ms: u32) -> Colo
                 return off;
             }
             let t = (u16::from(i) * 255 / u16::from(PIXELS - 1)) as u8;
-            let base = lerp(cfg.color_min, cfg.color_max, t);
+            let base = palette_linear(cfg, t);
             match cfg.mode {
                 Lighting::Pulse => {
                     scale(base, (51 + u16::from(wave(now_ms, cfg.speed)) * 204 / 255) as u8)
                 }
-                Lighting::Fade => lerp(cfg.color_min, cfg.color_max, wave(now_ms, cfg.speed)),
+                Lighting::Fade => palette_cyclic(cfg, rotation(now_ms, cfg.speed)),
                 _ => base,
             }
         }
@@ -136,8 +170,7 @@ mod tests {
         PreviewConfig {
             mode,
             speed: 5,
-            color_min: Color::new(255, 0, 0),
-            color_max: Color::new(0, 0, 255),
+            colors: vec![Color::new(255, 0, 0), Color::new(0, 0, 255)],
             volume_min: Color::new(0, 255, 64),
             volume_max: Color::new(255, 0, 0),
         }
@@ -160,6 +193,25 @@ mod tests {
         assert_eq!(render_pixel(&c, 0, 0, 0), Color::new(255, 0, 0));
         let half = render_pixel(&c, 0, 4, 0);
         assert!(half.r < 10 && half.b > 245);
+    }
+
+    #[test]
+    fn three_colour_palette_matches_firmware() {
+        // Same expectations as test_palette in firmware/test/test_core.c.
+        let mut c = cfg(Lighting::Static);
+        c.colors = vec![Color::new(255, 0, 0), Color::new(0, 255, 0), Color::new(0, 0, 255)];
+        assert_eq!(palette_linear(&c, 0), Color::new(255, 0, 0));
+        assert_eq!(palette_linear(&c, 255), Color::new(0, 0, 255));
+        let mid = palette_linear(&c, 128);
+        assert!(mid.g > 250 && mid.r < 5 && mid.b < 5);
+        let g = palette_cyclic(&c, 86);
+        assert!(g.g > 245 && g.r < 10);
+        let back = palette_cyclic(&c, 250);
+        assert!(back.r > 200 && back.b < 60);
+        assert_eq!(render_pixel(&c, 100, 0, 0), Color::new(255, 0, 0));
+        assert_eq!(render_pixel(&c, 100, 7, 0), Color::new(0, 0, 255));
+        c.colors.truncate(1);
+        assert_eq!(palette_cyclic(&c, 200), Color::new(255, 0, 0));
     }
 
     #[test]
