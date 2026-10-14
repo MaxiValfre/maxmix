@@ -42,7 +42,14 @@ pub struct SerialConfig {
     pub handshake_timeout: Duration,
     pub heartbeat_interval: Duration,
     pub heartbeat_timeout: Duration,
+    /// Pause after each frame longer than [`PACED_FRAME_MIN`] bytes. The Nano
+    /// has a 64-byte RX buffer and blocks ~15ms per OLED redraw, so an
+    /// unpaced burst (session data is 37 bytes/frame) overruns it.
+    pub large_frame_gap: Duration,
 }
+
+/// Frames at least this long are followed by `large_frame_gap`.
+pub const PACED_FRAME_MIN: usize = 16;
 
 impl Default for SerialConfig {
     fn default() -> Self {
@@ -51,6 +58,7 @@ impl Default for SerialConfig {
             handshake_timeout: Duration::from_millis(1500),
             heartbeat_interval: Duration::from_secs(1),
             heartbeat_timeout: Duration::from_secs(3),
+            large_frame_gap: Duration::from_millis(20),
         }
     }
 }
@@ -146,7 +154,8 @@ fn worker_loop(
         emit(tx_evt, TransportEvent::State(ConnectionState::Ready));
 
         // Ready loop: pump outgoing frames, decode incoming, run heartbeat.
-        if ready_loop(&config, &mut *link, &rx_out, tx_evt, stop).is_err() {
+        if let Err(e) = ready_loop(&config, &mut *link, &rx_out, tx_evt, stop) {
+            emit(tx_evt, TransportEvent::Error(format!("link lost: {e}")));
             emit(tx_evt, TransportEvent::State(ConnectionState::Disconnected));
             sleep_backoff(&mut backoff, stop, tx_evt);
         }
@@ -169,7 +178,13 @@ fn ready_loop(
         // 1. Flush any queued outgoing messages.
         loop {
             match rx_out.try_recv() {
-                Ok(msg) => link.write_all(&msg.encode())?,
+                Ok(msg) => {
+                    let bytes = msg.encode();
+                    link.write_all(&bytes)?;
+                    if bytes.len() >= PACED_FRAME_MIN {
+                        thread::sleep(config.large_frame_gap);
+                    }
+                }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => return Ok(()),
             }
