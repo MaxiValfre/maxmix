@@ -36,6 +36,23 @@ uint8_t mm_pixel_index(uint8_t i, uint8_t count, uint8_t reversed);
 mm_rgb_t mm_render_pixel(const mm_lighting_t *cfg, uint8_t volume, uint8_t i,
                          uint8_t count, uint32_t now_ms, uint8_t idle);
 
+/* Fully saturated hue wheel colour, h in 0..255 (0 red, 85 green, 170 blue). */
+mm_rgb_t mm_hue(uint8_t h);
+
+/* Lit length of the volume gauge in q8 pixel units (pixels * 256). */
+uint16_t mm_level_q8(uint8_t volume, uint8_t count);
+
+/*
+ * Volume gauge pixel as a fill between the volume colours: LEDs below
+ * `level_q8` show volume_max, the rest volume_min, and the boundary LED blends
+ * by the fractional part, so 0% is all min, 100% all max and the fill moves
+ * smoothly instead of jumping a whole LED at a time.
+ */
+mm_rgb_t mm_render_gauge(const mm_lighting_t *cfg, uint16_t level_q8, uint8_t i, uint8_t count);
+
+/* One easing step from `cur` towards `target` (call once per frame). */
+uint16_t mm_ease_q8(uint16_t cur, uint16_t target);
+
 /* True when idle lighting should be active after `inactive_ms` of no input. */
 uint8_t mm_is_idle(const mm_lighting_t *cfg, uint32_t inactive_ms);
 

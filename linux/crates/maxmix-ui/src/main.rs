@@ -7,7 +7,7 @@
 use maxmix_core::{default_settings_path, load_or_init, save, AppSettings, Color, Lighting};
 
 slint::slint! {
-    import { Button, CheckBox, ComboBox, Slider, SpinBox, GroupBox, VerticalBox, HorizontalBox } from "std-widgets.slint";
+    import { Button, CheckBox, ComboBox, Slider, SpinBox, GroupBox, ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
 
     // Colour picker: live swatch + R/G/B sliders + quick palette.
     component ColorPicker inherits VerticalBox {
@@ -54,6 +54,7 @@ slint::slint! {
 
     export component SettingsWindow inherits Window {
         title: "MaxMix Settings";
+        icon: @image-url("../../../packaging/icons/maxmix.png");
         preferred-width: 440px;
 
         in-out property <float> min-r;
@@ -62,6 +63,12 @@ slint::slint! {
         in-out property <float> max-r;
         in-out property <float> max-g;
         in-out property <float> max-b;
+        in-out property <float> vmin-r;
+        in-out property <float> vmin-g;
+        in-out property <float> vmin-b;
+        in-out property <float> vmax-r;
+        in-out property <float> vmax-g;
+        in-out property <float> vmax-b;
         in-out property <int> lighting-mode;
         in-out property <int> lighting-speed;
         in-out property <int> idle-mode;
@@ -75,21 +82,31 @@ slint::slint! {
 
         callback save();
         callback reset-defaults();
+        preferred-height: 720px;
 
         VerticalBox {
+          ScrollView {
+           VerticalBox {
             GroupBox {
                 title: "Lighting (runs on the device)";
                 VerticalBox {
                     HorizontalBox { Text { text: "Mode"; vertical-alignment: center; width: 140px; }
-                        ComboBox { model: ["Static", "Pulse", "Fade"]; current-index <=> root.lighting-mode; } }
+                        ComboBox { model: ["Static", "Pulse", "Fade", "Rainbow", "Carousel"]; current-index <=> root.lighting-mode; } }
                     HorizontalBox { Text { text: "Speed (1-10)"; vertical-alignment: center; width: 140px; }
                         SpinBox { minimum: 1; maximum: 10; value <=> root.lighting-speed; } }
                     ColorPicker { label: "Min color"; r <=> root.min-r; g <=> root.min-g; b <=> root.min-b; }
                     ColorPicker { label: "Max color"; r <=> root.max-r; g <=> root.max-g; b <=> root.max-b; }
                     HorizontalBox { Text { text: "Idle mode"; vertical-alignment: center; width: 140px; }
-                        ComboBox { model: ["Static", "Pulse", "Fade"]; current-index <=> root.idle-mode; } }
+                        ComboBox { model: ["Static", "Pulse", "Fade", "Rainbow", "Carousel"]; current-index <=> root.idle-mode; } }
                     HorizontalBox { Text { text: "Idle after (s, 0=off)"; vertical-alignment: center; width: 140px; }
                         SpinBox { minimum: 0; maximum: 255; value <=> root.idle-timeout; } }
+                }
+            }
+            GroupBox {
+                title: "Volume indicator (shown while the volume changes)";
+                VerticalBox {
+                    ColorPicker { label: "Low"; r <=> root.vmin-r; g <=> root.vmin-g; b <=> root.vmin-b; }
+                    ColorPicker { label: "High"; r <=> root.vmax-r; g <=> root.vmax-g; b <=> root.vmax-b; }
                 }
             }
             GroupBox {
@@ -107,6 +124,8 @@ slint::slint! {
                 title: "General";
                 CheckBox { text: "Start MaxMix at login"; checked <=> root.autostart; }
             }
+           }
+          }
             Text { text: root.status; wrap: word-wrap; }
             HorizontalBox {
                 Button { text: "Defaults"; clicked => { root.reset-defaults(); } }
@@ -121,6 +140,8 @@ slint::slint! {
 struct Form {
     color_min: String,
     color_max: String,
+    volume_min: String,
+    volume_max: String,
     lighting_mode: i32,
     lighting_speed: i32,
     idle_mode: i32,
@@ -141,6 +162,8 @@ impl Form {
         Self {
             color_min: s.color_min.to_hex(),
             color_max: s.color_max.to_hex(),
+            volume_min: s.volume_color_min.to_hex(),
+            volume_max: s.volume_color_max.to_hex(),
             lighting_mode: s.lighting_mode.index() as i32,
             lighting_speed: i32::from(s.lighting_speed),
             idle_mode: s.idle_lighting_mode.index() as i32,
@@ -159,9 +182,15 @@ impl Form {
             .ok_or_else(|| format!("Invalid min color '{}': use #RRGGBB", self.color_min))?;
         let color_max = Color::from_hex(&self.color_max)
             .ok_or_else(|| format!("Invalid max color '{}': use #RRGGBB", self.color_max))?;
+        let volume_min = Color::from_hex(&self.volume_min)
+            .ok_or_else(|| format!("Invalid volume low color '{}'", self.volume_min))?;
+        let volume_max = Color::from_hex(&self.volume_max)
+            .ok_or_else(|| format!("Invalid volume high color '{}'", self.volume_max))?;
         let mut s = base.clone();
         s.color_min = color_min;
         s.color_max = color_max;
+        s.volume_color_min = volume_min;
+        s.volume_color_max = volume_max;
         s.lighting_mode = Lighting::from_index(self.lighting_mode.max(0) as usize);
         s.lighting_speed = clamp_u8(self.lighting_speed, 1, 10);
         s.idle_lighting_mode = Lighting::from_index(self.idle_mode.max(0) as usize);
@@ -194,6 +223,14 @@ fn write_form(ui: &SettingsWindow, f: &Form) {
     ui.set_max_r(r);
     ui.set_max_g(g);
     ui.set_max_b(b);
+    let (r, g, b) = hex_to_rgb(&f.volume_min);
+    ui.set_vmin_r(r);
+    ui.set_vmin_g(g);
+    ui.set_vmin_b(b);
+    let (r, g, b) = hex_to_rgb(&f.volume_max);
+    ui.set_vmax_r(r);
+    ui.set_vmax_g(g);
+    ui.set_vmax_b(b);
     ui.set_lighting_mode(f.lighting_mode);
     ui.set_lighting_speed(f.lighting_speed);
     ui.set_idle_mode(f.idle_mode);
@@ -209,6 +246,8 @@ fn read_form(ui: &SettingsWindow) -> Form {
     Form {
         color_min: rgb_to_hex(ui.get_min_r(), ui.get_min_g(), ui.get_min_b()),
         color_max: rgb_to_hex(ui.get_max_r(), ui.get_max_g(), ui.get_max_b()),
+        volume_min: rgb_to_hex(ui.get_vmin_r(), ui.get_vmin_g(), ui.get_vmin_b()),
+        volume_max: rgb_to_hex(ui.get_vmax_r(), ui.get_vmax_g(), ui.get_vmax_b()),
         lighting_mode: ui.get_lighting_mode(),
         lighting_speed: ui.get_lighting_speed(),
         idle_mode: ui.get_idle_mode(),

@@ -106,6 +106,10 @@ pub enum LightingMode {
     Static = 0,
     Pulse = 1,
     Fade = 2,
+    /// Full-ring hue wheel rotating around the ring (ignores volume).
+    Rainbow = 3,
+    /// The min->max->min gradient rotating around the ring (ignores volume).
+    Carousel = 4,
 }
 
 impl LightingMode {
@@ -115,6 +119,8 @@ impl LightingMode {
             0 => Some(Self::Static),
             1 => Some(Self::Pulse),
             2 => Some(Self::Fade),
+            3 => Some(Self::Rainbow),
+            4 => Some(Self::Carousel),
             _ => None,
         }
     }
@@ -132,6 +138,9 @@ pub struct LightingConfig {
     pub idle_mode: LightingMode,
     /// Seconds of inactivity before idle lighting kicks in (0 = disabled).
     pub idle_timeout_s: u8,
+    /// Gradient of the volume gauge shown while the volume changes.
+    pub volume_min: Rgb,
+    pub volume_max: Rgb,
 }
 
 /// Session counts + current selection, sent before the per-slot data.
@@ -201,6 +210,12 @@ impl HostToDevice {
                     cfg.color_max.b,
                     cfg.idle_mode as u8,
                     cfg.idle_timeout_s,
+                    cfg.volume_min.r,
+                    cfg.volume_min.g,
+                    cfg.volume_min.b,
+                    cfg.volume_max.r,
+                    cfg.volume_max.g,
+                    cfg.volume_max.b,
                 ];
                 encode_frame(T_LIGHTING_CONFIG, &p)
             }
@@ -359,7 +374,7 @@ pub fn decode_host_to_device(frame: &RawFrame) -> Result<HostToDevice, DecodeErr
             })
         }
         T_LIGHTING_CONFIG => {
-            need(10)?;
+            need(16)?;
             let mode = LightingMode::from_u8(p[0]).ok_or(DecodeError::BadField("mode"))?;
             let idle_mode = LightingMode::from_u8(p[8]).ok_or(DecodeError::BadField("idle_mode"))?;
             Ok(HostToDevice::Lighting(LightingConfig {
@@ -369,6 +384,8 @@ pub fn decode_host_to_device(frame: &RawFrame) -> Result<HostToDevice, DecodeErr
                 color_max: Rgb::new(p[5], p[6], p[7]),
                 idle_mode,
                 idle_timeout_s: p[9],
+                volume_min: Rgb::new(p[10], p[11], p[12]),
+                volume_max: Rgb::new(p[13], p[14], p[15]),
             }))
         }
         T_DEVICE_CONFIG => {
@@ -387,6 +404,28 @@ pub fn decode_host_to_device(frame: &RawFrame) -> Result<HostToDevice, DecodeErr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn animated_lighting_modes_round_trip() {
+        for mode in [LightingMode::Rainbow, LightingMode::Carousel] {
+            let cfg = LightingConfig {
+                mode,
+                speed: 5,
+                color_min: Rgb::new(1, 2, 3),
+                color_max: Rgb::new(4, 5, 6),
+                idle_mode: mode,
+                idle_timeout_s: 10,
+                volume_min: Rgb::new(7, 8, 9),
+                volume_max: Rgb::new(10, 11, 12),
+            };
+            let msg = HostToDevice::Lighting(cfg);
+            let frame = one_frame(&msg.encode());
+            assert_eq!(decode_host_to_device(&frame).unwrap(), msg);
+        }
+        assert_eq!(LightingMode::from_u8(3), Some(LightingMode::Rainbow));
+        assert_eq!(LightingMode::from_u8(4), Some(LightingMode::Carousel));
+        assert_eq!(LightingMode::from_u8(5), None);
+    }
     use crate::frame::FrameDecoder;
 
     /// Decode exactly one frame out of a byte buffer, for round-trip asserts.
@@ -467,6 +506,8 @@ mod tests {
             color_max: Rgb::new(0, 128, 255),
             idle_mode: LightingMode::Fade,
             idle_timeout_s: 30,
+            volume_min: Rgb::new(0, 255, 64),
+            volume_max: Rgb::new(255, 0, 0),
         });
         let frame = one_frame(&msg.encode());
         assert_eq!(decode_host_to_device(&frame).unwrap(), msg);

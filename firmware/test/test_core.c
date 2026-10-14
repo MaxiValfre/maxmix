@@ -61,6 +61,7 @@ static void test_decode_host_frames(void) {
     CHECK(l.mode == MM_LIGHT_PULSE && l.speed == 7 && l.idle_mode == MM_LIGHT_FADE);
     CHECK(l.color_min.b == 32 && l.color_max.g == 128 && l.color_max.b == 255);
     CHECK(l.idle_timeout_s == 30);
+    CHECK(l.volume_min.g == 255 && l.volume_min.b == 64 && l.volume_max.r == 255 && l.volume_max.g == 0);
 
     mm_devcfg_t dc;
     CHECK(DECODE(V_DEVICE_CONFIG, &f) && mm_parse_devcfg(&f, &dc));
@@ -110,7 +111,8 @@ static void test_rejects_wrong_type_or_length(void) {
 }
 
 static void test_lighting(void) {
-    mm_lighting_t l = {MM_LIGHT_STATIC, 5, {0, 0, 0}, {255, 255, 255}, MM_LIGHT_PULSE, 30};
+    mm_lighting_t l = {MM_LIGHT_STATIC, 5, {0, 0, 0}, {255, 255, 255}, MM_LIGHT_PULSE, 30,
+                       {0, 0, 0}, {0, 0, 0}};
     mm_rgb_t c;
 
     /* 50% volume on a 12-pixel ring lights 6 pixels. */
@@ -155,6 +157,90 @@ static void test_lighting(void) {
     CHECK(!mm_is_idle(&l, 1000000));
 }
 
+static void test_animated_modes(void) {
+    mm_lighting_t l = {MM_LIGHT_RAINBOW, 5, {255, 0, 0}, {0, 0, 255}, MM_LIGHT_CAROUSEL, 30,
+                       {0, 0, 0}, {0, 0, 0}};
+    mm_rgb_t a, b;
+
+    /* Hue wheel: primaries at the sector starts. */
+    a = mm_hue(0);
+    CHECK(a.r == 255 && a.g == 0 && a.b == 0);
+    a = mm_hue(85);
+    CHECK(a.g == 255 && a.r < 10 && a.b < 10);
+    a = mm_hue(170);
+    CHECK(a.b == 255 && a.r < 10 && a.g < 10);
+
+    /* Rainbow ignores volume (lit at 0%) and spreads hues around the ring. */
+    a = mm_render_pixel(&l, 0, 0, 8, 0, 0);
+    b = mm_render_pixel(&l, 0, 4, 8, 0, 0);
+    CHECK((a.r | a.g | a.b) != 0);
+    CHECK(a.r != b.r || a.g != b.g || a.b != b.b);
+    /* ...and rotates over time. */
+    b = mm_render_pixel(&l, 0, 0, 8, 600, 0);
+    CHECK(a.r != b.r || a.g != b.g || a.b != b.b);
+
+    /* Carousel: min colour at the start, max colour half way round. */
+    l.mode = MM_LIGHT_CAROUSEL;
+    a = mm_render_pixel(&l, 0, 0, 8, 0, 0);
+    CHECK(a.r == 255 && a.b == 0);
+    a = mm_render_pixel(&l, 0, 4, 8, 0, 0);
+    CHECK(a.r < 10 && a.b > 245);
+
+    /* Idle may use the animated modes too. */
+    l.mode = MM_LIGHT_STATIC;
+    a = mm_render_pixel(&l, 0, 0, 8, 0, 1);
+    CHECK(a.r == 255 && a.b == 0);
+}
+
+static void test_volume_gauge(void) {
+    /* Main colours red; the gauge must use the separate volume colours. */
+    mm_lighting_t l = {MM_LIGHT_RAINBOW, 5, {255, 0, 0}, {255, 0, 0}, MM_LIGHT_PULSE, 30,
+                       {0, 0, 0}, {255, 255, 255}};
+    mm_rgb_t c;
+
+    /* Level in q8 pixel units. */
+    CHECK(mm_level_q8(0, 8) == 0);
+    CHECK(mm_level_q8(100, 8) == 8 * 256);
+    CHECK(mm_level_q8(50, 8) == 4 * 256);
+
+    /* 4.5 pixels: 0..3 full, 4 half-lit, 5 off. Colours follow the gradient. */
+    uint16_t lvl = 4 * 256 + 128;
+    c = mm_render_gauge(&l, lvl, 3, 8);
+    CHECK(c.r > 100 && c.g == c.r && c.b == c.r); /* grey ramp = volume colours */
+    c = mm_render_gauge(&l, lvl, 7, 8);
+    CHECK(c.r == 0);
+    mm_rgb_t full = mm_render_gauge(&l, 8 * 256, 4, 8);
+    c = mm_render_gauge(&l, lvl, 4, 8);
+    CHECK(c.r > 0 && c.r < full.r);
+    c = mm_render_gauge(&l, lvl, 5, 8);
+    CHECK(c.r == 0 && c.g == 0 && c.b == 0);
+
+    /* Fill semantics: whole ring Low at 0%, whole ring High at 100%, the
+     * boundary LED blended. No LED is ever off. */
+    mm_lighting_t fill = {MM_LIGHT_STATIC, 5, {0, 0, 0}, {0, 0, 0}, MM_LIGHT_PULSE, 30,
+                       {255, 0, 0}, {0, 0, 255}};
+    for (uint8_t i = 0; i < 8; i++) {
+        c = mm_render_gauge(&fill, 0, i, 8);
+        CHECK(c.r == 255 && c.b == 0);
+        c = mm_render_gauge(&fill, 8 * 256, i, 8);
+        CHECK(c.r == 0 && c.b == 255);
+    }
+    c = mm_render_gauge(&fill, 2 * 256, 1, 8);   /* filled */
+    CHECK(c.b == 255 && c.r == 0);
+    c = mm_render_gauge(&fill, 2 * 256, 2, 8);   /* not reached */
+    CHECK(c.r == 255 && c.b == 0);
+    c = mm_render_gauge(&fill, 2 * 256 + 128, 2, 8); /* boundary: half way */
+    CHECK(c.r > 100 && c.r < 155 && c.b > 100 && c.b < 155);
+
+    /* Easing approaches the target and lands on it exactly. */
+    uint16_t v = 0;
+    uint8_t steps = 0;
+    while (v != 2048 && steps < 100) { v = mm_ease_q8(v, 2048); steps++; }
+    CHECK(v == 2048 && steps > 2 && steps < 40);
+    while (v != 0 && steps < 200) { v = mm_ease_q8(v, 0); steps++; }
+    CHECK(v == 0);
+}
+
 int main(void) {
     test_crc();
     test_decode_host_frames();
@@ -162,6 +248,8 @@ int main(void) {
     test_resync();
     test_rejects_wrong_type_or_length();
     test_lighting();
+    test_animated_modes();
+    test_volume_gauge();
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

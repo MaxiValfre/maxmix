@@ -117,9 +117,9 @@ uint8_t mm_parse_volume_set(const mm_frame_t *f, uint8_t *slot, mm_volume_t *v) 
 }
 
 uint8_t mm_parse_lighting(const mm_frame_t *f, mm_lighting_t *l) {
-    EXPECT(f, MM_T_LIGHTING_CONFIG, 10);
+    EXPECT(f, MM_T_LIGHTING_CONFIG, 16);
     const uint8_t *p = f->payload;
-    if (p[0] > MM_LIGHT_FADE || p[8] > MM_LIGHT_FADE) return 0;
+    if (p[0] > MM_LIGHT_LAST || p[8] > MM_LIGHT_LAST) return 0;
     l->mode = p[0];
     l->speed = p[1];
     l->color_min.r = p[2];
@@ -130,6 +130,12 @@ uint8_t mm_parse_lighting(const mm_frame_t *f, mm_lighting_t *l) {
     l->color_max.b = p[7];
     l->idle_mode = p[8];
     l->idle_timeout_s = p[9];
+    l->volume_min.r = p[10];
+    l->volume_min.g = p[11];
+    l->volume_min.b = p[12];
+    l->volume_max.r = p[13];
+    l->volume_max.g = p[14];
+    l->volume_max.b = p[15];
     return 1;
 }
 

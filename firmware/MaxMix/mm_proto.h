@@ -49,6 +49,9 @@ extern "C" {
 #define MM_LIGHT_STATIC 0
 #define MM_LIGHT_PULSE 1
 #define MM_LIGHT_FADE 2
+#define MM_LIGHT_RAINBOW 3  /* hue wheel rotating around the ring */
+#define MM_LIGHT_CAROUSEL 4 /* min->max->min gradient rotating around the ring */
+#define MM_LIGHT_LAST MM_LIGHT_CAROUSEL
 
 typedef struct {
     uint8_t type;
@@ -79,6 +82,8 @@ typedef struct {
     mm_rgb_t color_max;
     uint8_t idle_mode;
     uint8_t idle_timeout_s; /* 0 = disabled */
+    mm_rgb_t volume_min;    /* volume gauge gradient */
+    mm_rgb_t volume_max;
 } mm_lighting_t;
 
 typedef struct {

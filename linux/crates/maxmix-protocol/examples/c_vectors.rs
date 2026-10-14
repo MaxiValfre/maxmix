@@ -51,6 +51,8 @@ fn main() {
             color_max: Rgb::new(0, 128, 255),
             idle_mode: LightingMode::Fade,
             idle_timeout_s: 30,
+            volume_min: Rgb::new(0, 255, 64),
+            volume_max: Rgb::new(255, 0, 0),
         })
         .encode(),
     );

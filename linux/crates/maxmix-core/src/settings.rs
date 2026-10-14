@@ -47,7 +47,8 @@ impl Color {
 
 impl Lighting {
     /// All modes in UI order.
-    pub const ALL: [Lighting; 3] = [Lighting::Static, Lighting::Pulse, Lighting::Fade];
+    pub const ALL: [Lighting; 5] =
+        [Lighting::Static, Lighting::Pulse, Lighting::Fade, Lighting::Rainbow, Lighting::Carousel];
 
     /// Index into [`Lighting::ALL`].
     #[must_use]
@@ -56,6 +57,8 @@ impl Lighting {
             Lighting::Static => 0,
             Lighting::Pulse => 1,
             Lighting::Fade => 2,
+            Lighting::Rainbow => 3,
+            Lighting::Carousel => 4,
         }
     }
 
@@ -79,6 +82,8 @@ pub enum Lighting {
     Static,
     Pulse,
     Fade,
+    Rainbow,
+    Carousel,
 }
 
 impl From<Lighting> for LightingMode {
@@ -87,6 +92,8 @@ impl From<Lighting> for LightingMode {
             Lighting::Static => LightingMode::Static,
             Lighting::Pulse => LightingMode::Pulse,
             Lighting::Fade => LightingMode::Fade,
+            Lighting::Rainbow => LightingMode::Rainbow,
+            Lighting::Carousel => LightingMode::Carousel,
         }
     }
 }
@@ -97,6 +104,12 @@ pub struct AppSettings {
     pub schema_version: u32,
     pub color_min: Color,
     pub color_max: Color,
+    /// Volume gauge gradient (shown while the volume changes). Older settings
+    /// files lack these fields and get the defaults.
+    #[serde(default = "default_volume_min")]
+    pub volume_color_min: Color,
+    #[serde(default = "default_volume_max")]
+    pub volume_color_max: Color,
     pub lighting_mode: Lighting,
     /// Animation speed 1..=10.
     pub lighting_speed: u8,
@@ -121,6 +134,8 @@ impl Default for AppSettings {
             schema_version: SCHEMA_VERSION,
             color_min: Color::new(0, 0, 32),
             color_max: Color::new(0, 128, 255),
+            volume_color_min: default_volume_min(),
+            volume_color_max: default_volume_max(),
             lighting_mode: Lighting::Static,
             lighting_speed: 5,
             idle_lighting_mode: Lighting::Pulse,
@@ -136,6 +151,15 @@ impl Default for AppSettings {
     }
 }
 
+/// Volume gauge defaults: a classic green -> red level meter.
+fn default_volume_min() -> Color {
+    Color::new(0, 255, 64)
+}
+
+fn default_volume_max() -> Color {
+    Color::new(255, 0, 0)
+}
+
 impl AppSettings {
     /// Build the firmware lighting config this settings snapshot implies.
     #[must_use]
@@ -147,6 +171,8 @@ impl AppSettings {
             color_max: self.color_max.into(),
             idle_mode: self.idle_lighting_mode.into(),
             idle_timeout_s: self.idle_timeout_s,
+            volume_min: self.volume_color_min.into(),
+            volume_max: self.volume_color_max.into(),
         }
     }
 }
@@ -255,6 +281,36 @@ mod tests {
         save(&path, &old).unwrap();
         let loaded = load_or_init(&path);
         assert_eq!(loaded.schema_version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn settings_without_volume_colours_load_with_defaults() {
+        let mut v = serde_json::to_value(AppSettings::default()).unwrap();
+        let obj = v.as_object_mut().unwrap();
+        obj.remove("volume_color_min");
+        obj.remove("volume_color_max");
+        let s: AppSettings = serde_json::from_value(v).unwrap();
+        assert_eq!(s.volume_color_min, Color::new(0, 255, 64));
+        assert_eq!(s.volume_color_max, Color::new(255, 0, 0));
+    }
+
+    #[test]
+    fn lighting_config_carries_volume_colours() {
+        let mut s = AppSettings::default();
+        s.volume_color_min = Color::new(1, 2, 3);
+        s.volume_color_max = Color::new(4, 5, 6);
+        let cfg = s.lighting_config();
+        assert_eq!(cfg.volume_min, Rgb::new(1, 2, 3));
+        assert_eq!(cfg.volume_max, Rgb::new(4, 5, 6));
+    }
+
+    #[test]
+    fn every_ui_lighting_mode_maps_to_the_wire() {
+        for (i, l) in Lighting::ALL.iter().enumerate() {
+            assert_eq!(l.index(), i);
+            assert_eq!(Lighting::from_index(i), *l);
+            assert_eq!(LightingMode::from(*l) as usize, i, "UI order == wire value");
+        }
     }
 
     #[test]
