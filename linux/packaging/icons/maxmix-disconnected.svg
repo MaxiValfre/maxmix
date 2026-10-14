@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MaxMix "M" mark, traced from the original MaxMix app icon
+     (t3knomanzer/maxmix-software, Apache-2.0). -->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <polygon points="16,16 128,96 240,16 240,240 16,240" fill="#777777"/>
+</svg>

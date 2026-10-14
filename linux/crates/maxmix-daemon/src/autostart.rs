@@ -16,7 +16,7 @@ pub fn desktop_entry(exec_path: &str) -> String {
          Name=MaxMix\n\
          Comment=MaxMix hardware audio mixer companion\n\
          Exec={exec_path}\n\
-         Icon=audio-volume-high\n\
+         Icon=maxmix\n\
          Terminal=false\n\
          Categories=AudioVideo;Audio;Mixer;\n\
          X-GNOME-Autostart-enabled=true\n"

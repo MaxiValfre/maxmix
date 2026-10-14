@@ -3,6 +3,6 @@ Type=Application
 Name=MaxMix
 Comment=MaxMix hardware audio mixer companion
 Exec=maxmixd
-Icon=audio-volume-high
+Icon=maxmix
 Terminal=false
 Categories=AudioVideo;Audio;Mixer;

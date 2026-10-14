@@ -19,9 +19,34 @@ struct MaxMixTray {
     status: String,
 }
 
+impl MaxMixTray {
+    /// Connected once the handshake succeeded ("Connected"/"Ready"); grey otherwise.
+    fn connected(&self) -> bool {
+        matches!(self.status.as_str(), "Connected" | "Ready")
+    }
+}
+
 impl ksni::Tray for MaxMixTray {
+    // No theme name: hosts would prefer it over the pixmap and lose the
+    // connected/disconnected colour.
     fn icon_name(&self) -> String {
-        "audio-volume-high".into()
+        String::new()
+    }
+
+    fn icon_pixmap(&self) -> Vec<ksni::Icon> {
+        let rgb = if self.connected() {
+            crate::icon::CONNECTED_RGB
+        } else {
+            crate::icon::DISCONNECTED_RGB
+        };
+        [22u32, 32, 48, 64]
+            .into_iter()
+            .map(|size| ksni::Icon {
+                width: size as i32,
+                height: size as i32,
+                data: crate::icon::m_mark_argb(size, rgb),
+            })
+            .collect()
     }
 
     fn title(&self) -> String {

@@ -3,6 +3,6 @@ Type=Application
 Name=MaxMix Settings
 Comment=Configure MaxMix lighting and device behaviour
 Exec=maxmix-settings
-Icon=preferences-desktop
+Icon=maxmix
 Terminal=false
 Categories=Settings;HardwareSettings;

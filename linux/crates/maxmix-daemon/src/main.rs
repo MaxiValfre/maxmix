@@ -8,6 +8,8 @@
 
 mod audio_thread;
 mod autostart;
+#[cfg_attr(not(feature = "tray"), allow(dead_code))]
+mod icon;
 mod settings_watch;
 mod single_instance;
 #[cfg(feature = "tray")]

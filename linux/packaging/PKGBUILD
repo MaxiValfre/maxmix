@@ -29,5 +29,7 @@ package() {
   install -Dm644 packaging/60-maxmix.rules "$pkgdir/usr/lib/udev/rules.d/60-maxmix.rules"
   install -Dm644 packaging/maxmix.desktop "$pkgdir/usr/share/applications/maxmix.desktop"
   install -Dm644 packaging/maxmix-settings.desktop "$pkgdir/usr/share/applications/maxmix-settings.desktop"
+  install -Dm644 packaging/icons/maxmix.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/maxmix.svg"
+  install -Dm644 packaging/icons/maxmix.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/maxmix.png"
   install -Dm644 ../LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
