@@ -1,6 +1,6 @@
 # Maintainer: MaxiValfre
 pkgname=maxmix
-pkgver=0.1.0
+pkgver=1.0.0
 pkgrel=1
 pkgdesc="Linux companion daemon for the MaxMix hardware audio mixer (PipeWire/PulseAudio)"
 arch=('x86_64' 'aarch64')
@@ -8,7 +8,7 @@ url="https://github.com/MaxiValfre/maxmix"
 license=('Apache-2.0')
 depends=('libpulse' 'systemd-libs' 'dbus' 'libxkbcommon' 'fontconfig')
 makedepends=('cargo' 'git')
-source=("$pkgname::git+$url.git#branch=feat/linux-rust-rewrite")
+source=("$pkgname::git+$url.git#tag=linux-v$pkgver")
 sha256sums=('SKIP')
 
 build() {

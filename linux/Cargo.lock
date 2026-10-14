@@ -2532,7 +2532,7 @@ dependencies = [
 
 [[package]]
 name = "maxmix-audio"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "libpulse-binding",
  "maxmix-protocol",
@@ -2541,7 +2541,7 @@ dependencies = [
 
 [[package]]
 name = "maxmix-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "dirs",
  "maxmix-audio",
@@ -2554,7 +2554,7 @@ dependencies = [
 
 [[package]]
 name = "maxmix-daemon"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "ctrlc",
  "dirs",
@@ -2571,11 +2571,11 @@ dependencies = [
 
 [[package]]
 name = "maxmix-protocol"
-version = "0.1.0"
+version = "1.0.0"
 
 [[package]]
 name = "maxmix-serial"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "maxmix-protocol",
  "serialport",
@@ -2584,7 +2584,7 @@ dependencies = [
 
 [[package]]
 name = "maxmix-ui"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "maxmix-core",
  "slint",
