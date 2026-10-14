@@ -54,6 +54,29 @@ mm_rgb_t mm_hue(uint8_t h) {
     return c;
 }
 
+static uint8_t palette_n(const mm_lighting_t *cfg) {
+    uint8_t n = cfg->color_count;
+    return n < 1 ? 1 : (n > MM_MAX_PALETTE ? MM_MAX_PALETTE : n);
+}
+
+mm_rgb_t mm_palette_linear(const mm_lighting_t *cfg, uint8_t t) {
+    uint8_t n = palette_n(cfg);
+    if (n == 1) return cfg->colors[0];
+    uint16_t pos = (uint16_t)t * (n - 1);
+    uint8_t i = (uint8_t)(pos / 255);
+    if (i >= n - 1) return cfg->colors[n - 1];
+    return mm_lerp(cfg->colors[i], cfg->colors[i + 1], (uint8_t)(pos % 255));
+}
+
+mm_rgb_t mm_palette_cyclic(const mm_lighting_t *cfg, uint8_t p) {
+    uint8_t n = palette_n(cfg);
+    if (n == 1) return cfg->colors[0];
+    uint16_t pos = (uint16_t)p * n;
+    uint8_t i = (uint8_t)(pos >> 8);
+    uint8_t next = (uint8_t)((i + 1) % n);
+    return mm_lerp(cfg->colors[i], cfg->colors[next], (uint8_t)(pos & 0xFF));
+}
+
 /* Rotation offset 0..255 for one turn per wave period (same speed scale). */
 static uint8_t rotation(uint32_t now_ms, uint8_t speed) {
     if (speed < 1) speed = 1;
@@ -71,9 +94,8 @@ static mm_rgb_t ambient_color(uint8_t mode, const mm_lighting_t *cfg, uint8_t i,
                               uint32_t now_ms) {
     uint8_t p = (uint8_t)(((uint16_t)i * 256) / count + rotation(now_ms, cfg->speed));
     if (mode == MM_LIGHT_RAINBOW) return mm_hue(p);
-    /* Carousel: min at p=0, max at p=128, back to min. */
-    uint8_t t = p < 128 ? (uint8_t)(p * 2) : (uint8_t)((255 - p) * 2 + 1);
-    return mm_lerp(cfg->color_min, cfg->color_max, t);
+    /* Carousel: the palette as a loop, rotating around the ring. */
+    return mm_palette_cyclic(cfg, p);
 }
 
 uint16_t mm_level_q8(uint8_t volume, uint8_t count) {
@@ -102,19 +124,26 @@ uint16_t mm_ease_q8(uint16_t cur, uint16_t target) {
     return (uint16_t)((int32_t)cur + step);
 }
 
-static mm_rgb_t mode_color(uint8_t mode, mm_rgb_t base, mm_rgb_t lo, mm_rgb_t hi,
-                           uint32_t now_ms, uint8_t speed) {
+static mm_rgb_t mode_color(uint8_t mode, const mm_lighting_t *cfg, mm_rgb_t base,
+                           uint32_t now_ms) {
     switch (mode) {
     case MM_LIGHT_PULSE: {
         /* Breathe between 20% and 100% brightness. */
-        uint8_t k = (uint8_t)(51 + ((uint16_t)mm_wave(now_ms, speed) * 204) / 255);
+        uint8_t k = (uint8_t)(51 + ((uint16_t)mm_wave(now_ms, cfg->speed) * 204) / 255);
         return mm_scale(base, k);
     }
     case MM_LIGHT_FADE:
-        return mm_lerp(lo, hi, mm_wave(now_ms, speed));
+        /* Whole ring walks the palette loop over time. */
+        return mm_palette_cyclic(cfg, rotation(now_ms, cfg->speed));
     default:
         return base;
     }
+}
+
+/* Palette gradient position of pixel i on a ring of `count`. */
+static mm_rgb_t ring_gradient(const mm_lighting_t *cfg, uint8_t i, uint8_t count) {
+    uint8_t t = count > 1 ? (uint8_t)(((uint16_t)i * 255) / (count - 1)) : 255;
+    return mm_palette_linear(cfg, t);
 }
 
 mm_rgb_t mm_render_pixel(const mm_lighting_t *cfg, uint8_t volume, uint8_t i,
@@ -124,8 +153,8 @@ mm_rgb_t mm_render_pixel(const mm_lighting_t *cfg, uint8_t volume, uint8_t i,
 
     if (idle) {
         if (is_ambient(cfg->idle_mode)) return ambient_color(cfg->idle_mode, cfg, i, count, now_ms);
-        return mode_color(cfg->idle_mode, cfg->color_max, cfg->color_min, cfg->color_max,
-                          now_ms, cfg->speed);
+        /* Idle ignores the volume: the full palette gradient, animated. */
+        return mode_color(cfg->idle_mode, cfg, ring_gradient(cfg, i, count), now_ms);
     }
 
     if (is_ambient(cfg->mode)) return ambient_color(cfg->mode, cfg, i, count, now_ms);
@@ -135,9 +164,7 @@ mm_rgb_t mm_render_pixel(const mm_lighting_t *cfg, uint8_t volume, uint8_t i,
     uint8_t lit = (uint8_t)(((uint16_t)volume * count + 50) / 100);
     if (i >= lit) return off;
 
-    uint8_t t = count > 1 ? (uint8_t)(((uint16_t)i * 255) / (count - 1)) : 255;
-    mm_rgb_t base = mm_lerp(cfg->color_min, cfg->color_max, t);
-    return mode_color(cfg->mode, base, cfg->color_min, cfg->color_max, now_ms, cfg->speed);
+    return mode_color(cfg->mode, cfg, ring_gradient(cfg, i, count), now_ms);
 }
 
 uint8_t mm_is_idle(const mm_lighting_t *cfg, uint32_t inactive_ms) {

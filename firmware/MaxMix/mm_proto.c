@@ -116,26 +116,34 @@ uint8_t mm_parse_volume_set(const mm_frame_t *f, uint8_t *slot, mm_volume_t *v) 
     return 1;
 }
 
+/* mode, speed, n, colour[n], idle_mode, idle_timeout, volume_min, volume_max (11 + 3n). */
 uint8_t mm_parse_lighting(const mm_frame_t *f, mm_lighting_t *l) {
-    EXPECT(f, MM_T_LIGHTING_CONFIG, 16);
+    if (f->type != MM_T_LIGHTING_CONFIG || f->len < 3) return 0;
     const uint8_t *p = f->payload;
-    if (p[0] > MM_LIGHT_LAST || p[8] > MM_LIGHT_LAST) return 0;
+    uint8_t n = p[2];
+    if (n < 1 || n > MM_MAX_PALETTE || f->len != 11 + 3 * n) return 0;
+    const uint8_t *rest = p + 3 + 3 * n;
+    if (p[0] > MM_LIGHT_LAST || rest[0] > MM_LIGHT_LAST) return 0;
     l->mode = p[0];
     l->speed = p[1];
-    l->color_min.r = p[2];
-    l->color_min.g = p[3];
-    l->color_min.b = p[4];
-    l->color_max.r = p[5];
-    l->color_max.g = p[6];
-    l->color_max.b = p[7];
-    l->idle_mode = p[8];
-    l->idle_timeout_s = p[9];
-    l->volume_min.r = p[10];
-    l->volume_min.g = p[11];
-    l->volume_min.b = p[12];
-    l->volume_max.r = p[13];
-    l->volume_max.g = p[14];
-    l->volume_max.b = p[15];
+    l->color_count = n;
+    for (uint8_t i = 0; i < MM_MAX_PALETTE; i++) {
+        mm_rgb_t c = {0, 0, 0};
+        if (i < n) {
+            c.r = p[3 + 3 * i];
+            c.g = p[4 + 3 * i];
+            c.b = p[5 + 3 * i];
+        }
+        l->colors[i] = c;
+    }
+    l->idle_mode = rest[0];
+    l->idle_timeout_s = rest[1];
+    l->volume_min.r = rest[2];
+    l->volume_min.g = rest[3];
+    l->volume_min.b = rest[4];
+    l->volume_max.r = rest[5];
+    l->volume_max.g = rest[6];
+    l->volume_max.b = rest[7];
     return 1;
 }
 

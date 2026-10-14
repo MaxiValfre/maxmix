@@ -36,6 +36,12 @@ uint8_t mm_pixel_index(uint8_t i, uint8_t count, uint8_t reversed);
 mm_rgb_t mm_render_pixel(const mm_lighting_t *cfg, uint8_t volume, uint8_t i,
                          uint8_t count, uint32_t now_ms, uint8_t idle);
 
+/* Palette as a gradient: t=0 first colour, t=255 last, through every stop. */
+mm_rgb_t mm_palette_linear(const mm_lighting_t *cfg, uint8_t t);
+
+/* Palette as a loop: p 0..255 walks 1 -> 2 -> ... -> n -> back to 1. */
+mm_rgb_t mm_palette_cyclic(const mm_lighting_t *cfg, uint8_t p);
+
 /* Fully saturated hue wheel colour, h in 0..255 (0 red, 85 green, 170 blue). */
 mm_rgb_t mm_hue(uint8_t h);
 

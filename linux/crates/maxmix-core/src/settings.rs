@@ -6,10 +6,11 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use maxmix_protocol::{LightingConfig, LightingMode, Rgb};
+use maxmix_protocol::{LightingConfig, LightingMode, Rgb, MAX_PALETTE};
 
 /// Current settings schema version.
-pub const SCHEMA_VERSION: u32 = 1;
+/// v2: `lighting_colors` palette (migrated from `color_min`/`color_max`).
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// A serialisable RGB colour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,6 +105,11 @@ pub struct AppSettings {
     pub schema_version: u32,
     pub color_min: Color,
     pub color_max: Color,
+    /// Lighting palette, 1..=8 colours (one per ring LED at most). Supersedes
+    /// `color_min`/`color_max`, which are kept mirrored (first/last) so older
+    /// builds still read a sensible pair.
+    #[serde(default)]
+    pub lighting_colors: Vec<Color>,
     /// Volume gauge gradient (shown while the volume changes). Older settings
     /// files lack these fields and get the defaults.
     #[serde(default = "default_volume_min")]
@@ -138,6 +144,7 @@ impl Default for AppSettings {
             schema_version: SCHEMA_VERSION,
             color_min: Color::new(0, 0, 32),
             color_max: Color::new(0, 128, 255),
+            lighting_colors: vec![Color::new(0, 0, 32), Color::new(0, 128, 255)],
             volume_color_min: default_volume_min(),
             volume_color_max: default_volume_max(),
             lighting_mode: Lighting::Static,
@@ -170,14 +177,38 @@ fn default_volume_max() -> Color {
 }
 
 impl AppSettings {
+    /// The lighting palette (1..=8 colours), falling back to the legacy pair.
+    #[must_use]
+    pub fn palette(&self) -> Vec<Color> {
+        if self.lighting_colors.is_empty() {
+            vec![self.color_min, self.color_max]
+        } else {
+            self.lighting_colors.iter().copied().take(MAX_PALETTE).collect()
+        }
+    }
+
+    /// Replace the palette (clamped to 1..=8) and mirror first/last into the
+    /// legacy `color_min`/`color_max`.
+    pub fn set_palette(&mut self, colors: &[Color]) {
+        let mut colors: Vec<Color> = colors.iter().copied().take(MAX_PALETTE).collect();
+        if colors.is_empty() {
+            colors.push(self.color_min);
+        }
+        self.color_min = colors[0];
+        self.color_max = *colors.last().unwrap_or(&colors[0]);
+        self.lighting_colors = colors;
+    }
+
     /// Build the firmware lighting config this settings snapshot implies.
     #[must_use]
     pub fn lighting_config(&self) -> LightingConfig {
+        let palette: Vec<Rgb> = self.palette().into_iter().map(Rgb::from).collect();
+        let (colors, color_count) = LightingConfig::palette_from(&palette);
         LightingConfig {
             mode: self.lighting_mode.into(),
             speed: self.lighting_speed.clamp(1, 10),
-            color_min: self.color_min.into(),
-            color_max: self.color_max.into(),
+            colors,
+            color_count,
             idle_mode: self.idle_lighting_mode.into(),
             idle_timeout_s: self.idle_timeout_s,
             volume_min: self.volume_color_min.into(),
@@ -235,7 +266,11 @@ pub fn save(path: &Path, settings: &AppSettings) -> std::io::Result<()> {
 /// Apply sequential migrations in place. Returns true if anything changed.
 fn migrate(settings: &mut AppSettings) -> bool {
     let mut changed = false;
-    // Future: match on settings.schema_version and upgrade step by step.
+    // v1 -> v2: build the palette from the old min/max pair.
+    if settings.lighting_colors.is_empty() {
+        settings.lighting_colors = vec![settings.color_min, settings.color_max];
+        changed = true;
+    }
     if settings.schema_version < SCHEMA_VERSION {
         settings.schema_version = SCHEMA_VERSION;
         changed = true;
@@ -290,6 +325,46 @@ mod tests {
         save(&path, &old).unwrap();
         let loaded = load_or_init(&path);
         assert_eq!(loaded.schema_version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn v1_settings_migrate_min_max_into_the_palette() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let mut v = serde_json::to_value(AppSettings::default()).unwrap();
+        let obj = v.as_object_mut().unwrap();
+        obj.remove("lighting_colors");
+        obj.insert("schema_version".into(), 1.into());
+        obj.insert("color_min".into(), serde_json::json!({"r": 255, "g": 0, "b": 160}));
+        obj.insert("color_max".into(), serde_json::json!({"r": 0, "g": 0, "b": 255}));
+        fs::write(&path, serde_json::to_string(&v).unwrap()).unwrap();
+
+        let s = load_or_init(&path);
+        assert_eq!(s.schema_version, 2);
+        assert_eq!(s.lighting_colors, vec![Color::new(255, 0, 160), Color::new(0, 0, 255)]);
+        // The migration is persisted.
+        let again: AppSettings = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(again.lighting_colors.len(), 2);
+    }
+
+    #[test]
+    fn palette_goes_to_the_wire_and_mirrors_legacy_pair() {
+        let mut s = AppSettings::default();
+        let pal = [Color::new(1, 0, 0), Color::new(0, 2, 0), Color::new(0, 0, 3)];
+        s.set_palette(&pal);
+        assert_eq!((s.color_min, s.color_max), (pal[0], pal[2]));
+        let cfg = s.lighting_config();
+        assert_eq!(cfg.color_count, 3);
+        assert_eq!(cfg.palette(), &[Rgb::new(1, 0, 0), Rgb::new(0, 2, 0), Rgb::new(0, 0, 3)]);
+    }
+
+    #[test]
+    fn palette_is_clamped_to_eight_colours() {
+        let mut s = AppSettings::default();
+        s.set_palette(&[Color::new(9, 9, 9); 12]);
+        assert_eq!(s.palette().len(), 8);
+        s.set_palette(&[]);
+        assert_eq!(s.palette().len(), 1);
     }
 
     #[test]

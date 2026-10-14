@@ -47,8 +47,13 @@ fn main() {
         &HostToDevice::Lighting(LightingConfig {
             mode: LightingMode::Pulse,
             speed: 7,
-            color_min: Rgb::new(0, 0, 32),
-            color_max: Rgb::new(0, 128, 255),
+            colors: LightingConfig::palette_from(&[
+                Rgb::new(0, 0, 32),
+                Rgb::new(0, 128, 255),
+                Rgb::new(255, 0, 160),
+            ])
+            .0,
+            color_count: 3,
             idle_mode: LightingMode::Fade,
             idle_timeout_s: 30,
             volume_min: Rgb::new(0, 255, 64),

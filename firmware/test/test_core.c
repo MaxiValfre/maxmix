@@ -59,7 +59,9 @@ static void test_decode_host_frames(void) {
     mm_lighting_t l;
     CHECK(DECODE(V_LIGHTING, &f) && mm_parse_lighting(&f, &l));
     CHECK(l.mode == MM_LIGHT_PULSE && l.speed == 7 && l.idle_mode == MM_LIGHT_FADE);
-    CHECK(l.color_min.b == 32 && l.color_max.g == 128 && l.color_max.b == 255);
+    CHECK(l.color_count == 3);
+    CHECK(l.colors[0].b == 32 && l.colors[1].g == 128 && l.colors[1].b == 255);
+    CHECK(l.colors[2].r == 255 && l.colors[2].b == 160);
     CHECK(l.idle_timeout_s == 30);
     CHECK(l.volume_min.g == 255 && l.volume_min.b == 64 && l.volume_max.r == 255 && l.volume_max.g == 0);
 
@@ -112,7 +114,7 @@ static void test_rejects_wrong_type_or_length(void) {
 }
 
 static void test_lighting(void) {
-    mm_lighting_t l = {MM_LIGHT_STATIC, 5, {0, 0, 0}, {255, 255, 255}, MM_LIGHT_PULSE, 30,
+    mm_lighting_t l = {MM_LIGHT_STATIC, 5, 2, {{0, 0, 0}, {255, 255, 255}}, MM_LIGHT_PULSE, 30,
                        {0, 0, 0}, {0, 0, 0}};
     mm_rgb_t c;
 
@@ -159,7 +161,7 @@ static void test_lighting(void) {
 }
 
 static void test_animated_modes(void) {
-    mm_lighting_t l = {MM_LIGHT_RAINBOW, 5, {255, 0, 0}, {0, 0, 255}, MM_LIGHT_CAROUSEL, 30,
+    mm_lighting_t l = {MM_LIGHT_RAINBOW, 5, 2, {{255, 0, 0}, {0, 0, 255}}, MM_LIGHT_CAROUSEL, 30,
                        {0, 0, 0}, {0, 0, 0}};
     mm_rgb_t a, b;
 
@@ -195,7 +197,7 @@ static void test_animated_modes(void) {
 
 static void test_volume_gauge(void) {
     /* Main colours red; the gauge must use the separate volume colours. */
-    mm_lighting_t l = {MM_LIGHT_RAINBOW, 5, {255, 0, 0}, {255, 0, 0}, MM_LIGHT_PULSE, 30,
+    mm_lighting_t l = {MM_LIGHT_RAINBOW, 5, 2, {{255, 0, 0}, {255, 0, 0}}, MM_LIGHT_PULSE, 30,
                        {0, 0, 0}, {255, 255, 255}};
     mm_rgb_t c;
 
@@ -218,7 +220,7 @@ static void test_volume_gauge(void) {
 
     /* Fill semantics: whole ring Low at 0%, whole ring High at 100%, the
      * boundary LED blended. No LED is ever off. */
-    mm_lighting_t fill = {MM_LIGHT_STATIC, 5, {0, 0, 0}, {0, 0, 0}, MM_LIGHT_PULSE, 30,
+    mm_lighting_t fill = {MM_LIGHT_STATIC, 5, 2, {{0, 0, 0}, {0, 0, 0}}, MM_LIGHT_PULSE, 30,
                        {255, 0, 0}, {0, 0, 255}};
     for (uint8_t i = 0; i < 8; i++) {
         c = mm_render_gauge(&fill, 0, i, 8);
@@ -242,6 +244,53 @@ static void test_volume_gauge(void) {
     CHECK(v == 0);
 }
 
+static void test_palette(void) {
+    /* Three colours: red, green, blue. */
+    mm_lighting_t l = {MM_LIGHT_STATIC, 5, 3, {{255, 0, 0}, {0, 255, 0}, {0, 0, 255}},
+                       MM_LIGHT_PULSE, 30, {0, 0, 0}, {0, 0, 0}};
+    mm_rgb_t c;
+
+    /* Linear: endpoints and the middle stop are exact. */
+    c = mm_palette_linear(&l, 0);
+    CHECK(c.r == 255 && c.g == 0 && c.b == 0);
+    c = mm_palette_linear(&l, 255);
+    CHECK(c.b == 255 && c.r == 0 && c.g == 0);
+    c = mm_palette_linear(&l, 128);
+    CHECK(c.g > 250 && c.r < 5 && c.b < 5);
+
+    /* Cyclic: thirds land on each colour and it wraps back to the first. */
+    c = mm_palette_cyclic(&l, 0);
+    CHECK(c.r == 255 && c.g == 0);
+    c = mm_palette_cyclic(&l, 86);   /* 86 * 3 = 258 -> just past green */
+    CHECK(c.g > 245 && c.r < 10);
+    c = mm_palette_cyclic(&l, 171);  /* 171 * 3 = 513 -> just past blue */
+    CHECK(c.b > 245 && c.g < 10);
+    c = mm_palette_cyclic(&l, 250);  /* heading back to red */
+    CHECK(c.r > 200 && c.b < 60);
+
+    /* Full-volume static ring walks the whole palette. */
+    c = mm_render_pixel(&l, 100, 0, 8, 0, 0);
+    CHECK(c.r == 255 && c.g == 0);
+    c = mm_render_pixel(&l, 100, 7, 8, 0, 0);
+    CHECK(c.b == 255 && c.r == 0);
+
+    /* Carousel spreads all three colours around the ring. */
+    l.mode = MM_LIGHT_CAROUSEL;
+    c = mm_render_pixel(&l, 0, 0, 6, 0, 0);
+    CHECK(c.r == 255);
+    c = mm_render_pixel(&l, 0, 2, 6, 0, 0);
+    CHECK(c.g > 245);
+    c = mm_render_pixel(&l, 0, 4, 6, 0, 0);
+    CHECK(c.b > 245);
+
+    /* A single colour is a solid ring. */
+    l.color_count = 1;
+    c = mm_palette_cyclic(&l, 200);
+    CHECK(c.r == 255 && c.g == 0 && c.b == 0);
+    c = mm_palette_linear(&l, 77);
+    CHECK(c.r == 255 && c.g == 0 && c.b == 0);
+}
+
 int main(void) {
     test_crc();
     test_decode_host_frames();
@@ -251,6 +300,7 @@ int main(void) {
     test_lighting();
     test_animated_modes();
     test_volume_gauge();
+    test_palette();
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

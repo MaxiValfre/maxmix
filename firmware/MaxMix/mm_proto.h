@@ -22,6 +22,7 @@ extern "C" {
 #define MM_FRAME_MAX (MM_MAX_PAYLOAD + 4)
 #define MM_PROTO_VERSION 2
 #define MM_NAME_BYTES 30
+#define MM_MAX_PALETTE 8 /* lighting palette colours (one per ring LED) */
 
 /* Host -> Device */
 #define MM_T_HELLO 0x01
@@ -78,8 +79,8 @@ typedef struct {
 typedef struct {
     uint8_t mode;
     uint8_t speed; /* 1..10 */
-    mm_rgb_t color_min;
-    mm_rgb_t color_max;
+    uint8_t color_count;               /* 1..MM_MAX_PALETTE */
+    mm_rgb_t colors[MM_MAX_PALETTE];   /* palette, first color_count used */
     uint8_t idle_mode;
     uint8_t idle_timeout_s; /* 0 = disabled */
     mm_rgb_t volume_min;    /* volume gauge gradient */

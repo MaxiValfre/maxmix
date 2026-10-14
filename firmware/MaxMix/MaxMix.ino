@@ -26,7 +26,7 @@ static mm_decoder_t decoder;
 static mm_frame_t frame;
 static uint8_t txbuf[MM_FRAME_MAX];
 
-static mm_lighting_t lighting = {MM_LIGHT_STATIC, 5, {0, 0, 32}, {0, 128, 255}, MM_LIGHT_PULSE, 30,
+static mm_lighting_t lighting = {MM_LIGHT_STATIC, 5, 2, {{0, 0, 32}, {0, 128, 255}}, MM_LIGHT_PULSE, 30,
                                   {0, 255, 64}, {255, 0, 0}};
 static mm_devcfg_t devcfg = {50, 0, 0, 0, 30}; /* sleep 0 = never, dim after 30s */
 static uint8_t display_dimmed = 0;

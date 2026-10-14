@@ -126,14 +126,21 @@ impl LightingMode {
     }
 }
 
+/// Maximum number of colours in the lighting palette (one per ring LED).
+pub const MAX_PALETTE: usize = 8;
+
 /// Lighting configuration pushed to the firmware once; it owns the animation.
+///
+/// Wire layout (11 + 3n bytes for n palette colours, 1..=8):
+/// `mode, speed, n, colour[n] (rgb), idle_mode, idle_timeout_s, volume_min, volume_max`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LightingConfig {
     pub mode: LightingMode,
     /// Animation speed 1..=10.
     pub speed: u8,
-    pub color_min: Rgb,
-    pub color_max: Rgb,
+    /// Palette; only the first `color_count` entries are used (unused are black).
+    pub colors: [Rgb; MAX_PALETTE],
+    pub color_count: u8,
     /// Lighting mode to use while idle (device autonomous).
     pub idle_mode: LightingMode,
     /// Seconds of inactivity before idle lighting kicks in (0 = disabled).
@@ -141,6 +148,26 @@ pub struct LightingConfig {
     /// Gradient of the volume gauge shown while the volume changes.
     pub volume_min: Rgb,
     pub volume_max: Rgb,
+}
+
+impl LightingConfig {
+    /// Pack up to [`MAX_PALETTE`] colours (extra ones are dropped; an empty
+    /// palette becomes a single black entry so the firmware always has one).
+    #[must_use]
+    pub fn palette_from(colors: &[Rgb]) -> ([Rgb; MAX_PALETTE], u8) {
+        let mut out = [Rgb::new(0, 0, 0); MAX_PALETTE];
+        let n = colors.len().clamp(1, MAX_PALETTE);
+        for (slot, c) in out.iter_mut().zip(colors.iter()) {
+            *slot = *c;
+        }
+        (out, n as u8)
+    }
+
+    /// The colours actually in use.
+    #[must_use]
+    pub fn palette(&self) -> &[Rgb] {
+        &self.colors[..usize::from(self.color_count).clamp(1, MAX_PALETTE)]
+    }
 }
 
 /// Session counts + current selection, sent before the per-slot data.
@@ -201,15 +228,12 @@ impl HostToDevice {
                 encode_frame(T_VOLUME_SET, &p)
             }
             HostToDevice::Lighting(cfg) => {
-                let p = [
-                    cfg.mode as u8,
-                    cfg.speed,
-                    cfg.color_min.r,
-                    cfg.color_min.g,
-                    cfg.color_min.b,
-                    cfg.color_max.r,
-                    cfg.color_max.g,
-                    cfg.color_max.b,
+                let palette = cfg.palette();
+                let mut p = vec![cfg.mode as u8, cfg.speed, palette.len() as u8];
+                for c in palette {
+                    p.extend_from_slice(&[c.r, c.g, c.b]);
+                }
+                p.extend_from_slice(&[
                     cfg.idle_mode as u8,
                     cfg.idle_timeout_s,
                     cfg.volume_min.r,
@@ -218,7 +242,7 @@ impl HostToDevice {
                     cfg.volume_max.r,
                     cfg.volume_max.g,
                     cfg.volume_max.b,
-                ];
+                ]);
                 encode_frame(T_LIGHTING_CONFIG, &p)
             }
             HostToDevice::DeviceConfig {
@@ -377,18 +401,29 @@ pub fn decode_host_to_device(frame: &RawFrame) -> Result<HostToDevice, DecodeErr
             })
         }
         T_LIGHTING_CONFIG => {
-            need(16)?;
+            let n = usize::from(*p.get(2).ok_or(DecodeError::BadField("color_count"))?);
+            if !(1..=MAX_PALETTE).contains(&n) {
+                return Err(DecodeError::BadField("color_count"));
+            }
+            need(11 + 3 * n)?;
             let mode = LightingMode::from_u8(p[0]).ok_or(DecodeError::BadField("mode"))?;
-            let idle_mode = LightingMode::from_u8(p[8]).ok_or(DecodeError::BadField("idle_mode"))?;
+            let rest = &p[3 + 3 * n..];
+            let idle_mode =
+                LightingMode::from_u8(rest[0]).ok_or(DecodeError::BadField("idle_mode"))?;
+            let mut colors = [Rgb::new(0, 0, 0); MAX_PALETTE];
+            for (i, c) in colors.iter_mut().take(n).enumerate() {
+                let o = 3 + 3 * i;
+                *c = Rgb::new(p[o], p[o + 1], p[o + 2]);
+            }
             Ok(HostToDevice::Lighting(LightingConfig {
                 mode,
                 speed: p[1],
-                color_min: Rgb::new(p[2], p[3], p[4]),
-                color_max: Rgb::new(p[5], p[6], p[7]),
+                colors,
+                color_count: n as u8,
                 idle_mode,
-                idle_timeout_s: p[9],
-                volume_min: Rgb::new(p[10], p[11], p[12]),
-                volume_max: Rgb::new(p[13], p[14], p[15]),
+                idle_timeout_s: rest[1],
+                volume_min: Rgb::new(rest[2], rest[3], rest[4]),
+                volume_max: Rgb::new(rest[5], rest[6], rest[7]),
             }))
         }
         T_DEVICE_CONFIG => {
@@ -415,8 +450,8 @@ mod tests {
             let cfg = LightingConfig {
                 mode,
                 speed: 5,
-                color_min: Rgb::new(1, 2, 3),
-                color_max: Rgb::new(4, 5, 6),
+                colors: LightingConfig::palette_from(&[Rgb::new(1, 2, 3), Rgb::new(4, 5, 6)]).0,
+                color_count: 2,
                 idle_mode: mode,
                 idle_timeout_s: 10,
                 volume_min: Rgb::new(7, 8, 9),
@@ -506,8 +541,8 @@ mod tests {
         let msg = HostToDevice::Lighting(LightingConfig {
             mode: LightingMode::Pulse,
             speed: 7,
-            color_min: Rgb::new(0, 0, 32),
-            color_max: Rgb::new(0, 128, 255),
+            colors: LightingConfig::palette_from(&[Rgb::new(0, 0, 32), Rgb::new(0, 128, 255)]).0,
+            color_count: 2,
             idle_mode: LightingMode::Fade,
             idle_timeout_s: 30,
             volume_min: Rgb::new(0, 255, 64),
@@ -515,6 +550,43 @@ mod tests {
         });
         let frame = one_frame(&msg.encode());
         assert_eq!(decode_host_to_device(&frame).unwrap(), msg);
+    }
+
+    #[test]
+    fn lighting_palette_sizes_round_trip() {
+        for n in 1..=MAX_PALETTE {
+            let colors: Vec<Rgb> = (0..n as u8).map(|i| Rgb::new(i, i * 2, i * 3)).collect();
+            let (colors, color_count) = LightingConfig::palette_from(&colors);
+            let msg = HostToDevice::Lighting(LightingConfig {
+                mode: LightingMode::Carousel,
+                speed: 3,
+                colors,
+                color_count,
+                idle_mode: LightingMode::Rainbow,
+                idle_timeout_s: 9,
+                volume_min: Rgb::new(1, 1, 1),
+                volume_max: Rgb::new(2, 2, 2),
+            });
+            let frame = one_frame(&msg.encode());
+            assert_eq!(frame.payload.len(), 11 + 3 * n);
+            assert_eq!(decode_host_to_device(&frame).unwrap(), msg);
+        }
+    }
+
+    #[test]
+    fn lighting_rejects_bad_palette_sizes() {
+        for n in [0u8, 9] {
+            let mut payload = vec![0, 5, n];
+            payload.resize(11 + 3 * usize::from(n), 0);
+            let bytes = crate::frame::encode_frame(T_LIGHTING_CONFIG, &payload);
+            assert!(decode_host_to_device(&one_frame(&bytes)).is_err(), "n = {n}");
+        }
+    }
+
+    #[test]
+    fn palette_from_clamps_to_one_and_eight() {
+        assert_eq!(LightingConfig::palette_from(&[]).1, 1);
+        assert_eq!(LightingConfig::palette_from(&[Rgb::new(1, 1, 1); 12]).1, 8);
     }
 
     #[test]
