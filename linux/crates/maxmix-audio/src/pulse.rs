@@ -48,9 +48,12 @@ fn session_key(info: &SinkInputInfo) -> String {
 
 fn session_name(info: &SinkInputInfo) -> String {
     let pl = &info.proplist;
-    pl.get_str("application.name")
-        .or_else(|| info.name.as_ref().map(ToString::to_string))
-        .unwrap_or_else(|| "Unknown".to_string())
+    let fallback = info.name.as_ref().map_or_else(|| "Unknown".to_string(), ToString::to_string);
+    crate::identity::display_name(
+        pl.get_str("application.name").as_deref(),
+        pl.get_str("application.process.binary").as_deref(),
+        &fallback,
+    )
 }
 
 /// A PulseAudio-backed audio session source/controller.
